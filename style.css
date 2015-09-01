@@ -1,0 +1,112 @@
+
+@import url("http://fonts.googleapis.com/css?family=Chelsea+Market");
+body {
+  background: linear-gradient(45deg, transparent 49%, rgba(18, 193, 199, 0.5) 49%, rgba(18, 193, 199, 0.5) 51%, transparent 51%), linear-gradient(-45deg, transparent 49%, rgba(255, 192, 203, 0.5) 49%, rgba(255, 192, 203, 0.5) 51%, transparent 51%), linear-gradient(45deg, #12c1c7, pink);
+  background-size: 10px 10px, 10px 10px, auto auto;
+  background-color: #0e9498;
+}
+
+#page-subline {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 190px;
+  height: 190px;
+  margin: -95px 0 0 -95px;
+  border: 2px dotted red;
+  border-radius: 100%;
+  background: linear-gradient(45deg, transparent 48%, #0a6669 48%, #50eaef 50%, #0a6669 52%, transparent 52%), linear-gradient(to bottom, #11b8be, transparent);
+  background-size: 5px 15px, auto auto;
+  background-color: #12c1c7;
+  box-shadow: 0 0 0 5px #12c1c7, 0 0 0 6px #0a6669, 8px 0 0 0 rgba(0, 0, 0, 0.2), inset 1px 0 0 0 rgba(255, 255, 255, 0.8), 8px 0 10px 0 rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 0 black;
+  font-family: 'Chelsea Market',sans-serif;
+  text-align: center;
+  transform: rotate(90deg);
+}
+#page-subline:before {
+  content: ' ';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  box-sizing: border-box;
+  width: 80%;
+  height: 80%;
+  margin: -40% 0 0 -40%;
+  border: 2px dashed #0a6669;
+  border-radius: 100%;
+  clip: rect(0, auto, 75px, 0);
+  transform: rotate(-90deg);
+}
+
+.page-subline-emphasize {
+  color: red;
+}
+
+[class^="page-subline-char-"] {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 1em;
+  height: 95px;
+  margin-left: -0.5em;
+  color: white;
+  font-size: 1em;
+  line-height: 150px;
+  text-transform: uppercase;
+  transform-origin: top center;
+}
+
+.page-subline-char-1 {
+  transform: rotate(-13deg);
+}
+
+.page-subline-char-2 {
+  transform: rotate(-26deg);
+}
+
+.page-subline-char-3 {
+  transform: rotate(-39deg);
+}
+
+.page-subline-char-4 {
+  transform: rotate(-52deg);
+}
+
+.page-subline-char-5 {
+  transform: rotate(-65deg);
+}
+
+.page-subline-char-6 {
+  transform: rotate(-78deg);
+}
+
+.page-subline-char-7 {
+  transform: rotate(-91deg);
+}
+
+.page-subline-char-8 {
+  transform: rotate(-104deg);
+}
+
+.page-subline-char-9 {
+  transform: rotate(-117deg);
+}
+
+.page-subline-char-10 {
+  transform: rotate(-130deg);
+}
+
+.page-subline-char-11 {
+  transform: rotate(-143deg);
+}
+
+.page-subline-char-12 {
+  transform: rotate(-156deg);
+}
+
+.page-subline-char-13 {
+  transform: rotate(-169deg);
+}

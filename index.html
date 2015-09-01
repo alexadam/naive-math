@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title></title>
+
+
+    <!-- <link rel="stylesheet" href="style.css" media="screen" title="no title" charset="utf-8"> -->
+    <script type="text/javascript"
+      src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=AM_HTMLorMML-full"></script>
+    <script type="text/javascript"
+      src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script type="text/javascript" src="gene.js"></script>
+
+
+
+</head>
+
+<body>
+
+    <p id="math0" style="text-align:center">
+      `x = (-b +- sqrt(b^2-4ac))/(2a) .`
+    </p>
+
+    <p id="math1" style="text-align:center">
+      `x = (-b +- sqrt(b^2-4ac))/(2a) .`
+    </p>
+
+    <script>
+        // self executing function here
+        (function() {
+            var result = main();
+            document.getElementById('math0').innerHTML = result[0];
+            document.getElementById('math1').innerHTML = result[1];
+        })();
+    </script>
+
+</body>
+
+</html>
