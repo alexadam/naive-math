@@ -1,13 +1,13 @@
 "use strict";
 
-Array.prototype.random = function () {
-  return this[Math.floor((Math.random()*this.length))];
+Array.prototype.random = function() {
+    return this[Math.floor((Math.random() * this.length))];
 }
 
 ////////////
 
 var rules1 = {
-    nodeTypes : {
+    nodeTypes: {
         'add': 2,
         'sub': 2,
         'mul': 2,
@@ -17,15 +17,15 @@ var rules1 = {
         'sin': 1,
         'atom': 0
     },
-    nodeRules : {
+    nodeRules: {
         'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin'],
         'end': ['atom']
     },
-    rulesOrder : {
+    rulesOrder: {
         'start': ['start', 'end'],
         'end': ['']
     },
-    mutationRules : {
+    mutationRules: {
         'add': ['add', 'sub', 'mul', 'div', 'pow'],
         'sub': ['add', 'sub', 'mul', 'div', 'pow'],
         'mul': ['add', 'sub', 'mul', 'div', 'pow'],
@@ -34,6 +34,73 @@ var rules1 = {
         'neg': ['neg', 'sin'],
         'sin': ['neg', 'sin'],
         'atom': ['atom']
+    }
+};
+
+
+var rules_e = {
+    nodeTypes: {
+        'add': 2,
+        'sub': 2,
+        'mul': 2,
+        'div': 2,
+        'pow': 2,
+        'neg': 1,
+        'sin': 1,
+        'atom_e': 0,
+        'atom_e': 0
+    },
+    nodeRules: {
+        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin'],
+        'end': ['atom_e', 'atom_e']
+    },
+    rulesOrder: {
+        'start': ['start', 'end'],
+        'end': ['']
+    },
+    mutationRules: {
+        'add': ['add', 'sub', 'mul', 'div', 'pow'],
+        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
+        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
+        'div': ['add', 'sub', 'mul', 'div', 'pow'],
+        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
+        'neg': ['neg', 'sin'],
+        'sin': ['neg', 'sin'],
+        'atom_e': ['atom_e', 'atom_e'],
+        'atom_e': ['atom_e', 'atom_e']
+    }
+};
+
+var rules_pi = {
+    nodeTypes: {
+        'add': 2,
+        'sub': 2,
+        'mul': 2,
+        'div': 2,
+        'pow': 2,
+        'neg': 1,
+        'sin': 1,
+        'atom_pi': 0,
+        'atom_pi': 0
+    },
+    nodeRules: {
+        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin'],
+        'end': ['atom_pi', 'atom_pi']
+    },
+    rulesOrder: {
+        'start': ['start', 'end'],
+        'end': ['']
+    },
+    mutationRules: {
+        'add': ['add', 'sub', 'mul', 'div', 'pow'],
+        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
+        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
+        'div': ['add', 'sub', 'mul', 'div', 'pow'],
+        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
+        'neg': ['neg', 'sin'],
+        'sin': ['neg', 'sin'],
+        'atom_pi': ['atom_pi', 'atom_pi'],
+        'atom_pi': ['atom_pi', 'atom_pi']
     }
 };
 
@@ -106,6 +173,14 @@ function Node(rules, type) {
             return this.value;
         }
 
+        if (this.type === 'atom_e') {
+            return 2.71828183;
+        }
+
+        if (this.type === 'atom_pi') {
+            return 3.14159265;
+        }
+
         if (this.type === 'add') {
             return this.children[0].eval() + this.children[1].eval();
         }
@@ -142,6 +217,14 @@ function Node(rules, type) {
     this.evalToStr = function() {
         if (this.type === 'atom') {
             return this.value;
+        }
+
+        if (this.type === 'atom_e') {
+            return 2.71828183;
+        }
+
+        if (this.type === 'atom_pi') {
+            return 3.14159265;
         }
 
         if (this.type === 'add') {
@@ -210,14 +293,15 @@ function createRandomNode(rules, rule, index, maxLen) {
     var nn = new Node(rules, type);
 
     if (type == 'atom') {
-        var chance = Math.random();
-        if (chance < 0.5) {
-            nn.setValue(3.14159265);
-        } else if (chance >= 0.5 && chance < 1) {
-            nn.setValue(2.71828183);
-        } else {
-            nn.setValue(Math.floor(Math.random() * 10));
-        }
+        nn.setValue(Math.floor(Math.random() * 10));
+    }
+
+    if (type === 'atom_e') {
+        nn.setValue(2.71828183);
+    }
+
+    if (type === 'atom_pi') {
+        nn.setValue(3.14159265);
     }
 
     if (nextRule !== '') {
@@ -240,8 +324,8 @@ function Expression(rootNode) {
         return this.rootNode;
     }
 
-    this.createRandomExpression = function(maxLen) {
-        this.rootNode = createRandomNode(rules1, 'start', 0, maxLen);
+    this.createRandomExpression = function(maxLen, rules) {
+        this.rootNode = createRandomNode(rules, 'start', 0, maxLen);
         return this;
     }
 
@@ -385,25 +469,25 @@ function Pool() {
         return this;
     }
 
-    this.getElements = function () {
+    this.getElements = function() {
         return this.elements;
     }
 
-    this.mutate = function(rate) {
+    this.mutate = function(rules, rate) {
         if (this.elements.length === 0) {
             return;
         }
 
         this.elements.forEach(function(element) {
             if (Math.random() < rate) {
-                gg.mutate(element);
+                gg.mutate(rules, element);
             }
         });
 
         return this;
     }
 
-    this.newGeneration = function(nrOfChildren, mutationFactor) {
+    this.newGeneration = function(nrOfChildren, mutationFactor, rules) {
         if (this.elements.length < 2) {
             return;
         }
@@ -415,7 +499,7 @@ function Pool() {
             gg.crossover(elem1, elem2);
 
             if (Math.random() < mutationFactor) {
-                gg.mutate(rules1, elem1);
+                gg.mutate(rules, elem1);
             }
 
             this.elements.push(elem1);
@@ -423,9 +507,9 @@ function Pool() {
         return this;
     }
 
-    this.addRandomElements = function(nrOfElements, maxExprLength) {
+    this.addRandomElements = function(nrOfElements, maxExprLength, rules) {
         for (var i = 0; i < nrOfElements; i++) {
-            var nex = new Expression().createRandomExpression(maxExprLength);
+            var nex = new Expression().createRandomExpression(maxExprLength, rules);
             // gg.recurse(nex, 4); TODO
             this.elements.push(nex);
         }
@@ -456,13 +540,13 @@ function Evolve(targetValue, error) {
 
 }
 
-function EvolutionStep(targetValue, error) {
+function EvolutionStep(targetValue, error, rules) {
     var bestElements = [];
     var bestFitness = 0;
     var genetic = new GeneticHelper();
 
     var gen = new Pool();
-    gen.addRandomElements(1000, 30);
+    gen.addRandomElements(1000, 30, rules_pi);
     // bestElements = bestElements.concat(gen.evalTarget(3.1415 * 2.71, 0.14));
     // bestElements = bestElements.concat(gen.evalTarget(23.14, 1.14));
     // bestElements = bestElements.concat(gen.evalTarget(24.14 / 22.14, 0.05));
@@ -471,7 +555,7 @@ function EvolutionStep(targetValue, error) {
     for (var i = 0; i < 10; i++) {
         var tmpGen = new Pool();
         tmpGen.appendElements(bestElements);
-        tmpGen.newGeneration(1000, 0.2);
+        tmpGen.newGeneration(1000, 0.2, rules);
         bestElements = bestElements.concat(tmpGen.evalTarget(targetValue, error));
     }
 
@@ -496,11 +580,11 @@ function mathPrint(elem) {
 
 function generateLeftExpression() {
     var gen = new Pool();
-    gen.addRandomElements(1000, 5);
+    gen.addRandomElements(1000, 5, rules_e);
     var elems = gen.getElements();
     var leftElem = null;
 
-    elems.forEach(function (elem) {
+    elems.forEach(function(elem) {
         if (elem.getNodeList().length > 5 && leftElem === null && !isNaN(elem.eval())) {
             leftElem = elem;
         }
@@ -510,6 +594,20 @@ function generateLeftExpression() {
     console.log(leftElem.eval());
 
     return leftElem;
+}
+
+
+var paramsEx = {
+    targetValue: 0,
+    errorPercent: 1,
+    maxExprLength: 10,
+    mutationRate: 0.2,
+    maxNrGenerations: 1000,
+    rules: rules_e
+};
+
+function Genetic(params) {
+    // genetic -> pool -> expressions -> nodes
 }
 
 function main() {
@@ -602,5 +700,5 @@ function main() {
     var leftElem = generateLeftExpression();
     var leftElemVal = leftElem.eval();
 
-    return [mathPrint(leftElem), EvolutionStep(leftElemVal, 0.05)] ;
+    return [mathPrint(leftElem), EvolutionStep(leftElemVal, 0.05, rules_pi)];
 }
