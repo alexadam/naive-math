@@ -280,9 +280,9 @@ function Node(rules, type) {
 
         if (this.type === 'div') {
             var tmp = this.children[1].eval();
-            if (tmp === 0) {
-                return 0;
-            }
+            // if (tmp === 0) { TODO
+            //     return 0;
+            // }
             return this.children[0].eval() / tmp;
         }
 
@@ -497,27 +497,29 @@ function EvolutionStep(params, withElements) {
     var bestFitness = 0;
     var genetic = new GeneticHelper();
     var error = params.targetValue * params.errorPercent / 100;
+    var gen = new Pool();
 
     if (withElements === undefined || withElements === null || withElements.length === 0) {
-        var gen = new Pool();
         gen.addRandomElements(params.newGenerationNrOfChildren, params.maxExprLength, params.rules);
         bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
     } else {
         bestElements = bestElements.concat(withElements);
     }
 
-    for (var i = 0; i < params.maxNrGenerations; i++) {
-        var tmpGen = new Pool();
-        tmpGen.appendElements(bestElements);
-        tmpGen.newGeneration(params.newGenerationNrOfChildren, params.maxExprLength, params.rules);
-        bestElements = bestElements.concat(tmpGen.evalTarget(params.targetValue, error));
+    if (bestElements.length === 0) {
+        bestElements = bestElements.concat(gen.getElements());
+    }
 
-        if (i >= params.minNrGenerations && bestElements.length > 0) {
+    for (var i = 0; i < params.maxNrGenerations; i++) {
+        gen = new Pool();
+        gen.appendElements(bestElements);
+        gen.newGeneration(params.newGenerationNrOfChildren, params.maxExprLength, params.rules);
+        bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
+
+        if (i >= params.minNrGenerations) {
             break;
         }
     }
-
-    console.log(bestElements.length);
 
     return bestElements;
 
@@ -534,18 +536,20 @@ function Evolve(params) {
         }
     }
 
-    // bestElements = bestElements.concat(EvolutionStep(params, bestElements));
-
     if (bestElements.length === 0) {
         return "undefined";
     }
 
     genetic.sort(bestElements);
 
-    console.log(bestElements[0].evalToStr(), bestElements[0].eval(), bestElements[0].getFitness());
+    var result = {
+        eval: bestElements[0].eval(),
+        strEval: bestElements[0].evalToStr(),
+        mathExprEval: mathPrint(bestElements[0]),
+        error: bestElements[0].getFitness()
+    };
 
-    return mathPrint(bestElements[0]);
-
+    return result;
 }
 
 
@@ -713,15 +717,22 @@ function generateLeftExpression() {
         }
     });
 
-    console.log(leftElem.eval());
+    var result = {
+        eval: leftElem.eval(),
+        strEval: leftElem.evalToStr(),
+        mathExprEval: mathPrint(leftElem),
+        error: 0
+    };
 
-    return leftElem;
+
+    return result;
+
 }
 
 
 function main() {
     var leftElem = generateLeftExpression();
-    var leftElemVal = leftElem.eval();
+    var leftElemVal = leftElem.eval;
 
     var params = {
         targetValue: leftElemVal,
@@ -735,20 +746,8 @@ function main() {
     };
 
     var res = Evolve(params);
-    var maxIndex = 0;
+    
+    console.log(leftElem, res);
 
-    while (res === 'undefined') {
-        maxIndex++;
-
-        if (maxIndex > 100) {
-            break;
-        }
-
-        leftElem = generateLeftExpression();
-        leftElemVal = leftElem.eval();
-
-        res = Evolve(params);
-    }
-
-    return [mathPrint(leftElem), res];
+    return [leftElem.mathExprEval, res.mathExprEval];
 }
