@@ -424,6 +424,7 @@ function Expression(rootNode) {
 function Pool() {
     this.elements = [];
     this.bestElements = [];
+    this.newElements = [];
 
     var helper = new GeneticHelper();
     var that = this;
@@ -437,24 +438,16 @@ function Pool() {
         return this.elements;
     }
 
-    this.mutate = function(rules, rate) {
-        if (this.elements.length === 0) {
-            return;
-        }
-
-        this.elements.forEach(function(element) {
-            if (Math.random() < rate) {
-                helper.mutate(rules, element);
-            }
-        });
-
-        return this;
+    this.getNewElements = function() {
+        return this.newElements;
     }
 
     this.newGeneration = function(nrOfChildren, mutationFactor, rules) {
         if (this.elements.length < 2) {
             return;
         }
+
+        this.newElements = [];
 
         for (var i = 0; i < nrOfChildren; i++) {
             var elem1 = this.elements.random().copy();
@@ -466,7 +459,7 @@ function Pool() {
                 helper.mutate(rules, elem1);
             }
 
-            this.elements.push(elem1);
+            this.newElements.push(elem1);
         }
         return this;
     }
@@ -494,6 +487,7 @@ function Pool() {
 
 function EvolutionStep(params, withElements) {
     var bestElements = [];
+    var newGeneration = [];
     var bestFitness = 0;
     var genetic = new GeneticHelper();
     var error = params.targetValue * params.errorPercent / 100;
@@ -501,24 +495,36 @@ function EvolutionStep(params, withElements) {
 
     if (withElements === undefined || withElements === null || withElements.length === 0) {
         gen.addRandomElements(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
-        bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
     } else {
-        bestElements = bestElements.concat(withElements);
+        gen.appendElements(withElements);
     }
 
-    if (bestElements.length === 0) {
-        bestElements = bestElements.concat(gen.getElements());
+    var topElems = gen.evalTarget(params.targetValue, error);
+    if (topElems.length > 0) {
+        bestElements.push(topElems[0]);
     }
+
+    newGeneration = newGeneration.concat(gen.getElements());
 
     for (var i = 0; i < params.maxNrGenerations; i++) {
         gen = new Pool();
-        gen.appendElements(bestElements);
+        gen.appendElements(newGeneration);
         gen.newGeneration(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
-        bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
 
-        if (i >= params.minNrGenerations) {
-            break;
+        newGeneration = [];
+        newGeneration = newGeneration.concat(gen.getNewElements());
+
+        topElems = gen.evalTarget(params.targetValue, error);
+        if (topElems.length > 0) {
+            bestElements.push(topElems[0]);
         }
+
+    }
+
+    if (bestElements.length === 0) {
+        var tmpElems = gen.getElements();
+        genetic.sort(tmpElems);
+        bestElements.push(tmpElems[0]);
     }
 
     return bestElements;
@@ -531,14 +537,18 @@ function Evolve(params) {
 
     for (var i = 0; i < 10; i++) {
         bestElements = bestElements.concat(EvolutionStep(params));
-        if (bestElements.length > 0) {
-            break;
-        }
     }
 
-    if (bestElements.length === 0) {
-        return "undefined";
-    }
+    genetic.sort(bestElements);
+
+    var result = {
+        eval: bestElements[0].eval(),
+        strEval: bestElements[0].evalToStr(),
+        mathExprEval: mathPrint(bestElements[0]),
+        error: bestElements[0].getFitness()
+    };
+
+    bestElements = bestElements.concat(EvolutionStep(params, bestElements));
 
     genetic.sort(bestElements);
 
