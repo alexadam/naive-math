@@ -500,7 +500,7 @@ function EvolutionStep(params, withElements) {
     var gen = new Pool();
 
     if (withElements === undefined || withElements === null || withElements.length === 0) {
-        gen.addRandomElements(params.newGenerationNrOfChildren, params.maxExprLength, params.rules);
+        gen.addRandomElements(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
         bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
     } else {
         bestElements = bestElements.concat(withElements);
@@ -513,7 +513,7 @@ function EvolutionStep(params, withElements) {
     for (var i = 0; i < params.maxNrGenerations; i++) {
         gen = new Pool();
         gen.appendElements(bestElements);
-        gen.newGeneration(params.newGenerationNrOfChildren, params.maxExprLength, params.rules);
+        gen.newGeneration(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
         bestElements = bestElements.concat(gen.evalTarget(params.targetValue, error));
 
         if (i >= params.minNrGenerations) {
@@ -588,7 +588,21 @@ function GeneticHelper() {
         node.setType(newType);
 
         if (node.getType() === 'atom') {
-            node.setValue(Math.floor(Math.random() * 10));
+            var value = rules.values.atom.random();
+            var index = value.indexOf(':');
+
+            if (index > 0) {
+                var parts = value.split(':');
+                var max = parseFloat(parts[1]);
+
+                if (parts[0] === 'randInt') {
+                    node.setValue(Math.floor(Math.random() * max));
+                } else if (parts[0] === 'randFloat') {
+                    node.setValue(Math.random() * max);
+                }
+            } else {
+                node.setValue(parseFloat(value));
+            }
         }
     }
 
