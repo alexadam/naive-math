@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html ng-app="naiveApp">
 
 <head>
     <meta charset="utf-8">
@@ -18,38 +18,81 @@
     <script type="text/javascript" src="bower_components/bootstrap/dist/js/bootstrap.min.js">
     </script>
 
+    <script type="text/javascript" src="bower_components/angular/angular.js">
+    </script>
+    <script type="text/javascript" src="app.js">
+    </script>
+
 </head>
 
 <body>
 
-    <div class="container">
+    <div class="container" ng-controller="mainCtrl">
         <div class="row expressions">
             <div class="col-sm-5">
-                <p id="math0" style="text-align:right">
-                </p>
+                <div class="math-expr-holder text-right" mathjax-bind="leftExpr.mathExprEval">
+                </div>
             </div>
             <div class="col-sm-2">
                 <p class="text-center equal">=</p>
             </div>
             <div class="col-sm-5">
-                <p id="math1" style="text-align:left">
-                </p>
+                <div class="math-expr-holder text-left" mathjax-bind="rightExpr.mathExprEval">
+                </div>
             </div>
         </div>
-
+        <div class="row">
+            <div class="col-sm-5">
+            </div>
+            <div class="col-sm-2 text-center">
+                <button type="button" name="button" class="btn btn-default" ng-click="generate()">Generate</button>
+            </div>
+            <div class="col-sm-5">
+            </div>
+        </div>
+        <div class="row padding-50" ng-show="leftExpr !== '?'">
+            <div class="col-sm-5 text-right">
+                <div class="eval-value">
+                    <b>Abs. Value:</b> {{absVal(leftExpr.eval)}}
+                </div>
+            </div>
+            <div class="col-sm-2 text-center">
+                <div class="row">
+                    <div class="eval-error">
+                        <b>Error:</b> {{rightExpr.error}}
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-5 text-left">
+                <div class="row">
+                    <div class="eval-value">
+                        <b>Abs. Value:</b> {{absVal(rightExpr.eval)}}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row padding-25" ng-show="leftExpr !== '?'">
+            <div class="col-sm-5 text-right">
+                <div class="row">
+                    <div ng-show="showAscii">
+                        {{leftExpr.strEval}}
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-2 text-center">
+                <div class="row">
+                    <button type="button" name="button" class="btn btn-normal" ng-click="showAscii = !showAscii">A</button>
+                </div>
+            </div>
+            <div class="col-sm-5 text-left">
+                <div class="row">
+                    <div ng-show="showAscii">
+                        {{rightExpr.strEval}}
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-
-
-
-
-    <script>
-        // self executing function here
-        (function() {
-            var result = main();
-            document.getElementById('math0').innerHTML = result[0];
-            document.getElementById('math1').innerHTML = result[1];
-        })();
-    </script>
 
 </body>
 

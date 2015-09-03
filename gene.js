@@ -739,14 +739,14 @@ function main() {
         errorPercent: 1,
         maxExprLength: 30,
         mutationRate: 0.2,
-        minNrGenerations: 1,
+        minNrGenerations: 10,
         maxNrGenerations: 20,
         newGenerationNrOfChildren : 1000,
         rules: rules_pi_nr
     };
 
     var res = Evolve(params);
-    
+
     console.log(leftElem, res);
 
     return [leftElem.mathExprEval, res.mathExprEval];
