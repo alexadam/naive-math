@@ -1,0 +1,29 @@
+{
+  "name": "naive-math",
+  "version": "1.0.0",
+  "homepage": "https://github.com/alexadam/naive-math",
+  "authors": [
+    "alexadam <alex@eg312.com>"
+  ],
+  "description": "Use genetic algorithms to evolve math expressions",
+  "main": "index.html",
+  "keywords": [
+    "genetic",
+    "algorithms",
+    "math",
+    "genetic",
+    "programming"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "angular": "~1.4.5",
+    "bootstrap": "~3.3.5"
+  }
+}

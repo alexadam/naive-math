@@ -4,19 +4,22 @@ naiveApp.controller('mainCtrl', ['$scope', function($scope) {
     $scope.leftExpr = '?';
     $scope.rightExpr = '?';
 
+    $scope.leftRules = createRules([phi]);
+    $scope.rightRules = createRules([pi, e]);
+
     $scope.generate = function() {
 
-        $scope.leftExpr = generateLeftExpression();
+        $scope.leftExpr = generateLeftExpression($scope.leftRules);
 
         var params = {
             targetValue: $scope.leftExpr.eval,
-            errorPercent: 1,
+            errorPercent: 0.1,
             maxExprLength: 30,
             mutationRate: 0.2,
             minNrGenerations: 10,
             maxNrGenerations: 20,
-            newGenerationNrOfChildren: 1000,
-            rules: rules_pi_nr
+            newGenerationNrOfChildren: 100,
+            rules: $scope.rightRules
         };
 
         $scope.rightExpr = Evolve(params);

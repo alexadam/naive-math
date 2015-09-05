@@ -40,162 +40,53 @@ var rules_all = {
         'atom': ['atom']
     },
     values: {
-        atom: ['randInt:10', '3.14159265', '2.71828183']
+        atom: ['randInt:10', '3.14159265', '2.71828183', '1.61803398']
     }
 };
 
+var pi = '3.14159265';
+var e = '2.71828183';
+var phi = '1.61803398';
 
-var rules_e = {
-    nodeTypes: {
-        'add': 2,
-        'sub': 2,
-        'mul': 2,
-        'div': 2,
-        'pow': 2,
-        'neg': 1,
-        'sin': 1,
-        'cos': 1,
-        'log': 1,
-        'atom': 0
-    },
-    nodeRules: {
-        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-        'end': ['atom']
-    },
-    rulesOrder: {
-        'start': ['start', 'end'],
-        'end': ['']
-    },
-    mutationRules: {
-        'add': ['add', 'sub', 'mul', 'div', 'pow'],
-        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-        'div': ['add', 'sub', 'mul', 'div', 'pow'],
-        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-        'neg': ['neg', 'sin', 'cos', 'log'],
-        'sin': ['neg', 'sin', 'cos', 'log'],
-        'cos': ['neg', 'sin', 'cos', 'log'],
-        'log': ['neg', 'sin', 'cos', 'log'],
-        'atom': ['atom']
-    },
-    values: {
-        atom: ['2.71828183']
-    }
-};
-
-var rules_e_nr = {
-    nodeTypes: {
-        'add': 2,
-        'sub': 2,
-        'mul': 2,
-        'div': 2,
-        'pow': 2,
-        'neg': 1,
-        'sin': 1,
-        'cos': 1,
-        'log': 1,
-        'atom': 0
-    },
-    nodeRules: {
-        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-        'end': ['atom']
-    },
-    rulesOrder: {
-        'start': ['start', 'end'],
-        'end': ['']
-    },
-    mutationRules: {
-        'add': ['add', 'sub', 'mul', 'div', 'pow'],
-        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-        'div': ['add', 'sub', 'mul', 'div', 'pow'],
-        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-        'neg': ['neg', 'sin', 'cos', 'log'],
-        'sin': ['neg', 'sin', 'cos', 'log'],
-        'cos': ['neg', 'sin', 'cos', 'log'],
-        'log': ['neg', 'sin', 'cos', 'log'],
-        'atom': ['atom']
-    },
-    values: {
-        atom: ['randInt:10', '2.71828183']
-    }
-};
-
-var rules_pi = {
-    nodeTypes: {
-        'add': 2,
-        'sub': 2,
-        'mul': 2,
-        'div': 2,
-        'pow': 2,
-        'neg': 1,
-        'sin': 1,
-        'cos': 1,
-        'log': 1,
-        'atom': 0
-    },
-    nodeRules: {
-        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-        'end': ['atom']
-    },
-    rulesOrder: {
-        'start': ['start', 'end'],
-        'end': ['']
-    },
-    mutationRules: {
-        'add': ['add', 'sub', 'mul', 'div', 'pow'],
-        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-        'div': ['add', 'sub', 'mul', 'div', 'pow'],
-        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-        'neg': ['neg', 'sin', 'cos', 'log'],
-        'sin': ['neg', 'sin', 'cos', 'log'],
-        'cos': ['neg', 'sin', 'cos', 'log'],
-        'log': ['neg', 'sin', 'cos', 'log'],
-        'atom': ['atom']
-    },
-    values: {
-        atom: ['3.14159265']
-    }
-};
-
-var rules_pi_nr = {
-    nodeTypes: {
-        'add': 2,
-        'sub': 2,
-        'mul': 2,
-        'div': 2,
-        'pow': 2,
-        'neg': 1,
-        'sin': 1,
-        'cos': 1,
-        'log': 1,
-        'atom': 0
-    },
-    nodeRules: {
-        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-        'end': ['atom']
-    },
-    rulesOrder: {
-        'start': ['start', 'end'],
-        'end': ['']
-    },
-    mutationRules: {
-        'add': ['add', 'sub', 'mul', 'div', 'pow'],
-        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-        'div': ['add', 'sub', 'mul', 'div', 'pow'],
-        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-        'neg': ['neg', 'sin', 'cos', 'log'],
-        'sin': ['neg', 'sin', 'cos', 'log'],
-        'cos': ['neg', 'sin', 'cos', 'log'],
-        'log': ['neg', 'sin', 'cos', 'log'],
-        'atom': ['atom']
-    },
-    values: {
-        atom: ['randInt:10', '3.14159265']
-    }
-};
+function createRules(values) {
+    return {
+        nodeTypes: {
+            'add': 2,
+            'sub': 2,
+            'mul': 2,
+            'div': 2,
+            'pow': 2,
+            'neg': 1,
+            'sin': 1,
+            'cos': 1,
+            'log': 1,
+            'atom': 0
+        },
+        nodeRules: {
+            'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
+            'end': ['atom']
+        },
+        rulesOrder: {
+            'start': ['start', 'end'],
+            'end': ['']
+        },
+        mutationRules: {
+            'add': ['add', 'sub', 'mul', 'div', 'pow'],
+            'sub': ['add', 'sub', 'mul', 'div', 'pow'],
+            'mul': ['add', 'sub', 'mul', 'div', 'pow'],
+            'div': ['add', 'sub', 'mul', 'div', 'pow'],
+            'pow': ['add', 'sub', 'mul', 'div', 'pow'],
+            'neg': ['neg', 'sin', 'cos', 'log'],
+            'sin': ['neg', 'sin', 'cos', 'log'],
+            'cos': ['neg', 'sin', 'cos', 'log'],
+            'log': ['neg', 'sin', 'cos', 'log'],
+            'atom': ['atom']
+        },
+        values: {
+            atom: values
+        }
+    };
+}
 
 
 
@@ -535,7 +426,7 @@ function Evolve(params) {
     var bestElements = [];
     var genetic = new GeneticHelper();
 
-    for (var i = 0; i < 10; i++) {
+    for (var i = 0; i < 100; i++) {
         bestElements = bestElements.concat(EvolutionStep(params));
     }
 
@@ -721,14 +612,15 @@ function mathPrint(elem) {
     result = result.replace(/\-\-/g, '+');
     result = result.replace(/3\.14159265/g, 'pi');
     result = result.replace(/2\.71828183/g, 'e');
+    result = result.replace(/1\.61803398/g, 'phi');
 
     return '`' + result + '`';
 }
 
-function generateLeftExpression() {
+function generateLeftExpression(rules) {
 
     var gen = new Pool();
-    gen.addRandomElements(1000, 5, rules_e);
+    gen.addRandomElements(1000, 5, rules);
     var elems = gen.getElements();
     var leftElem = null;
 
