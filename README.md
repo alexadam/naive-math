@@ -1,4 +1,4 @@
-# naive-complexity
+# naive-math
 Use genetic algorithms to evolve math expressions
 
 Examples:
