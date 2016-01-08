@@ -1,8 +1,13 @@
 # naive-math
-Use genetic algorithms to evolve math expressions
 
-Examples:
-========
+Use genetic algorithms to evolve math identities
+
+## Demo
+
+
+
+## Examples:
+
 
 ![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex1.png)
 

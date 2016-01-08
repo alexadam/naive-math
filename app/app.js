@@ -1,32 +1,39 @@
 var naiveApp = angular.module('naiveApp', []);
 
-naiveApp.controller('mainCtrl', ['$scope', function($scope) {
+naiveApp.controller('mainCtrl', ['$scope', '$timeout', function($scope, $timeout) {
     $scope.leftExpr = '?';
     $scope.rightExpr = '?';
 
     $scope.leftRules = createRules([phi]);
     $scope.rightRules = createRules([pi, e]);
+    $scope.inProgress = false;
 
     $scope.generate = function() {
 
-        $scope.leftExpr = generateLeftExpression($scope.leftRules);
+        $scope.inProgress = true;
 
-        var params = {
-            targetValue: $scope.leftExpr.eval,
-            errorPercent: 0.1,
-            maxExprLength: 30,
-            mutationRate: 0.2,
-            minNrGenerations: 10,
-            maxNrGenerations: 20,
-            newGenerationNrOfChildren: 100,
-            rules: $scope.rightRules
-        };
+        $timeout(function() {
+            $scope.leftExpr = generateLeftExpression($scope.leftRules);
 
-        $scope.rightExpr = Evolve(params);
+            var params = {
+                targetValue: $scope.leftExpr.eval,
+                errorPercent: 0.1,
+                maxExprLength: 30,
+                mutationRate: 0.2,
+                minNrGenerations: 10,
+                maxNrGenerations: 20,
+                newGenerationNrOfChildren: 100,
+                rules: $scope.rightRules
+            };
+
+            $scope.rightExpr = Evolve(params);
+
+            $scope.inProgress = false;
+        }, 100);
 
     };
 
-    $scope.absVal = function (value) {
+    $scope.absVal = function(value) {
         return Math.abs(value);
     }
 }]);
@@ -40,8 +47,6 @@ naiveApp.directive("mathjaxBind", function() {
                     var content = angular.element('<p>').html(value == undefined ? "" : value);
                     $element.html("");
                     $element.append(content);
-                    // MathJax.Hub.Queue(["Reprocess", MathJax.Hub, $element[0]]);
-                    // MathJax.Hub.Queue(["Typeset", MathJax.Hub, $element[0]]);
                     MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
                 });
             }

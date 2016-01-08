@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="style.css" media="screen" title="no title" charset="utf-8">
 
     <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=AM_HTMLorMML-full"></script>
-    <!-- http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=AM_HTMLorMML-full -->
     <script type="text/javascript" src="bower_components/jquery/dist/jquery.min.js"></script>
     <script type="text/javascript" src="gene.js"></script>
     <script type="text/javascript" src="bower_components/jquery/dist/jquery.min.js">
@@ -49,6 +48,15 @@
             <div class="col-sm-5">
             </div>
         </div>
+        <div class="row" ng-show="inProgress">
+            <div class="col-sm-5">
+            </div>
+            <div class="col-sm-2 text-center">
+                <span><b>Please wait...</b></span>
+            </div>
+            <div class="col-sm-5">
+            </div>
+        </div>
         <div class="row padding-50" ng-show="leftExpr !== '?'">
             <div class="col-sm-5 text-right">
                 <div class="eval-value">
@@ -80,7 +88,7 @@
             </div>
             <div class="col-sm-2 text-center">
                 <div class="row">
-                    <button type="button" name="button" class="btn btn-normal" ng-click="showAscii = !showAscii">A</button>
+                    <button type="button" name="button" class="btn btn-normal" ng-click="showAscii = !showAscii">{{showAscii ? 'Hide' : 'As Text'}}</button>
                 </div>
             </div>
             <div class="col-sm-5 text-left">
