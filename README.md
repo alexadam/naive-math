@@ -4,7 +4,7 @@ Use genetic algorithms to evolve math identities
 
 ## Demo
 
-http://lexada.com/demos/naive-math/
+https://alexadam.dev/naive-math/
 
 ## Examples:
 
