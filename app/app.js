@@ -1,55 +1,109 @@
-var naiveApp = angular.module('naiveApp', []);
+document.addEventListener("DOMContentLoaded", function() {
+    "use strict";
 
-naiveApp.controller('mainCtrl', ['$scope', '$timeout', function($scope, $timeout) {
-    $scope.leftExpr = '?';
-    $scope.rightExpr = '?';
+    var generateBtn = document.getElementById("generateBtn");
+    var asciiToggleBtn = document.getElementById("asciiToggleBtn");
 
-    $scope.leftRules = createRules([phi]);
-    $scope.rightRules = createRules([pi, e]);
-    $scope.inProgress = false;
+    var leftMathExpr = document.getElementById("leftMathExpr");
+    var rightMathExpr = document.getElementById("rightMathExpr");
 
-    $scope.generate = function() {
+    var progressRow = document.getElementById("progressRow");
+    var valuesRow = document.getElementById("valuesRow");
+    var asciiRow = document.getElementById("asciiRow");
 
-        $scope.inProgress = true;
+    var leftAbsVal = document.getElementById("leftAbsVal");
+    var rightAbsVal = document.getElementById("rightAbsVal");
+    var errorVal = document.getElementById("errorVal");
 
-        $timeout(function() {
-            $scope.leftExpr = generateLeftExpression($scope.leftRules);
+    var leftAsciiText = document.getElementById("leftAsciiText");
+    var rightAsciiText = document.getElementById("rightAsciiText");
 
-            var params = {
-                targetValue: $scope.leftExpr.eval,
-                errorPercent: 0.1,
-                maxExprLength: 30,
-                mutationRate: 0.2,
-                minNrGenerations: 10,
-                maxNrGenerations: 20,
-                newGenerationNrOfChildren: 100,
-                rules: $scope.rightRules
-            };
+    var errorPercentInput = document.getElementById("errorPercentInput");
+    var mutationRateInput = document.getElementById("mutationRateInput");
+    var generationsInput = document.getElementById("generationsInput");
+    var populationSizeInput = document.getElementById("populationSizeInput");
 
-            $scope.rightExpr = Evolve(params);
+    var leftExpr = null;
+    var rightExpr = null;
+    var showAscii = false;
 
-            $scope.inProgress = false;
-        }, 100);
-
-    };
-
-    $scope.absVal = function(value) {
+    function absVal(value) {
         return Math.abs(value);
     }
-}]);
 
-naiveApp.directive("mathjaxBind", function() {
-    return {
-        restrict: "A",
-        controller: ["$scope", "$element", "$attrs",
-            function($scope, $element, $attrs) {
-                $scope.$watch($attrs.mathjaxBind, function(value) {
-                    var content = angular.element('<p>').html(value == undefined ? "" : value);
-                    $element.html("");
-                    $element.append(content);
-                    MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
-                });
-            }
-        ]
-    };
+    function setMathContent(el, value) {
+        el.innerHTML = "";
+        var content = document.createElement("p");
+        content.innerHTML = value === undefined ? "" : value;
+        el.appendChild(content);
+    }
+
+    function render() {
+        setMathContent(leftMathExpr, leftExpr ? "`" + leftExpr.mathExprEval + "`" : "?");
+        setMathContent(rightMathExpr, rightExpr ? "`" + rightExpr.mathExprEval + "`" : "?");
+
+        if (window.MathJax) {
+            MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
+        }
+
+        if (leftExpr && rightExpr) {
+            valuesRow.classList.remove("hidden");
+            asciiRow.classList.remove("hidden");
+
+            leftAbsVal.textContent = absVal(leftExpr.eval);
+            rightAbsVal.textContent = absVal(rightExpr.eval);
+            errorVal.textContent = rightExpr.error;
+
+            leftAsciiText.textContent = leftExpr.strEval;
+            rightAsciiText.textContent = rightExpr.strEval;
+
+            leftAsciiText.classList.toggle("hidden", !showAscii);
+            rightAsciiText.classList.toggle("hidden", !showAscii);
+
+            asciiToggleBtn.textContent = showAscii ? "Hide" : "As Text";
+        } else {
+            valuesRow.classList.add("hidden");
+            asciiRow.classList.add("hidden");
+        }
+    }
+
+    function generate() {
+        progressRow.classList.remove("hidden");
+
+        setTimeout(function() {
+            var gp = GP.createEngine({
+                errorPercent: parseFloat(errorPercentInput.value),
+                mutationRate: parseFloat(mutationRateInput.value),
+                generations: parseInt(generationsInput.value, 10),
+                populationSize: parseInt(populationSizeInput.value, 10)
+            });
+
+            var target = gp.randomTarget();
+            leftExpr = {
+                eval: target.value,
+                mathExprEval: target.expr,
+                strEval: target.expr
+            };
+
+            var result = gp.evolve(target.value);
+            rightExpr = {
+                eval: result.value,
+                mathExprEval: result.expr,
+                strEval: result.expr,
+                error: result.error
+            };
+
+            progressRow.classList.add("hidden");
+            render();
+        }, 100);
+    }
+
+    generateBtn.addEventListener("click", generate);
+
+    asciiToggleBtn.addEventListener("click", function() {
+        showAscii = !showAscii;
+        render();
+    });
+
+    render();
 });

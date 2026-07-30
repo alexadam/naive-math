@@ -1,103 +1,82 @@
 <!DOCTYPE html>
-<html ng-app="naiveApp">
+<html>
 
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Naive Math</title>
 
-    <link rel="stylesheet" href="./bower_components/bootstrap/dist/css/bootstrap.min.css" media="screen" title="no title" charset="utf-8">
     <link rel="stylesheet" href="./style.css" media="screen" title="no title" charset="utf-8">
 
     <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=AM_HTMLorMML-full"></script>
-    <script type="text/javascript" src="./bower_components/jquery/dist/jquery.min.js"></script>
     <script type="text/javascript" src="./gene.js"></script>
-    <script type="text/javascript" src="./bower_components/jquery/dist/jquery.min.js">
-    </script>
-    <script type="text/javascript" src="./bower_components/bootstrap/dist/js/bootstrap.min.js">
-    </script>
-
-    <script type="text/javascript" src="./bower_components/angular/angular.min.js">
-    </script>
-    <script type="text/javascript" src="./app.js">
-    </script>
+    <script type="text/javascript" src="./app.js"></script>
 
 </head>
 
 <body>
 
-    <div class="container" ng-controller="mainCtrl">
-        <div class="row expressions">
-            <div class="col-sm-5">
-                <div class="math-expr-holder text-right" mathjax-bind="leftExpr.mathExprEval">
+    <div class="app-shell">
+        <div class="card">
+            <header class="app-header">
+                <h1>Naive Math</h1>
+                <p class="subtitle">Genetic programming evolves an expression to match a random target value</p>
+            </header>
+
+            <section class="equation">
+                <div class="expr-box text-right" id="leftMathExpr">?</div>
+                <div class="equals">=</div>
+                <div class="expr-box text-left" id="rightMathExpr">?</div>
+            </section>
+
+            <section class="params">
+                <div class="param">
+                    <label for="errorPercentInput">Error %</label>
+                    <input type="number" id="errorPercentInput" value="0.1" step="0.01" min="0">
                 </div>
-            </div>
-            <div class="col-sm-2">
-                <p class="text-center equal">=</p>
-            </div>
-            <div class="col-sm-5">
-                <div class="math-expr-holder text-left" mathjax-bind="rightExpr.mathExprEval">
+                <div class="param">
+                    <label for="mutationRateInput">Mutation Rate</label>
+                    <input type="number" id="mutationRateInput" value="0.2" step="0.01" min="0" max="1">
                 </div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col-sm-5">
-            </div>
-            <div class="col-sm-2 text-center">
-                <button type="button" name="button" class="btn btn-default" ng-click="generate()">Generate</button>
-            </div>
-            <div class="col-sm-5">
-            </div>
-        </div>
-        <div class="row" ng-show="inProgress">
-            <div class="col-sm-5">
-            </div>
-            <div class="col-sm-2 text-center">
-                <span><b>Please wait...</b></span>
-            </div>
-            <div class="col-sm-5">
-            </div>
-        </div>
-        <div class="row padding-50" ng-show="leftExpr !== '?'">
-            <div class="col-sm-5 text-right">
-                <div class="eval-value">
-                    <b>Abs. Value:</b> {{absVal(leftExpr.eval)}}
+                <div class="param">
+                    <label for="generationsInput">Generations</label>
+                    <input type="number" id="generationsInput" value="200" step="1" min="1">
                 </div>
-            </div>
-            <div class="col-sm-2 text-center">
-                <div class="row">
-                    <div class="eval-error">
-                        <b>Error:</b> {{rightExpr.error}}
-                    </div>
+                <div class="param">
+                    <label for="populationSizeInput">Population Size</label>
+                    <input type="number" id="populationSizeInput" value="2000" step="1" min="1">
                 </div>
-            </div>
-            <div class="col-sm-5 text-left">
-                <div class="row">
-                    <div class="eval-value">
-                        <b>Abs. Value:</b> {{absVal(rightExpr.eval)}}
-                    </div>
+            </section>
+
+            <section class="actions">
+                <button type="button" id="generateBtn" class="btn-primary">Generate</button>
+            </section>
+
+            <section class="progress hidden" id="progressRow">
+                <span class="spinner"></span>
+                <span>Evolving expression&hellip;</span>
+            </section>
+
+            <section class="results hidden" id="valuesRow">
+                <div class="result-card text-right">
+                    <span class="result-label">Abs. Value</span>
+                    <span class="result-value" id="leftAbsVal"></span>
                 </div>
-            </div>
-        </div>
-        <div class="row padding-25" ng-show="leftExpr !== '?'">
-            <div class="col-sm-5 text-right">
-                <div class="row">
-                    <div ng-show="showAscii">
-                        {{leftExpr.strEval}}
-                    </div>
+                <div class="result-card result-card-error">
+                    <span class="result-label">Error</span>
+                    <span class="result-value" id="errorVal"></span>
                 </div>
-            </div>
-            <div class="col-sm-2 text-center">
-                <div class="row">
-                    <button type="button" name="button" class="btn btn-normal" ng-click="showAscii = !showAscii">{{showAscii ? 'Hide' : 'As Text'}}</button>
+                <div class="result-card text-left">
+                    <span class="result-label">Abs. Value</span>
+                    <span class="result-value" id="rightAbsVal"></span>
                 </div>
-            </div>
-            <div class="col-sm-5 text-left">
-                <div class="row">
-                    <div ng-show="showAscii">
-                        {{rightExpr.strEval}}
-                    </div>
-                </div>
-            </div>
+            </section>
+
+            <section class="ascii-row hidden" id="asciiRow">
+                <div class="ascii-text text-right hidden" id="leftAsciiText"></div>
+                <button type="button" id="asciiToggleBtn" class="btn-ghost">As Text</button>
+                <div class="ascii-text text-left hidden" id="rightAsciiText"></div>
+            </section>
         </div>
     </div>
 

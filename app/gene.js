@@ -1,669 +1,379 @@
 "use strict";
 
-Array.prototype.random = function() {
-    return this[Math.floor((Math.random() * this.length))];
+/**
+ * Symbolic regression via genetic programming — modernized rewrite.
+ *
+ * Fixes and improvements over the original:
+ *  - Real subtree crossover (the original silently no-op'd most of the time)
+ *  - Tournament selection + elitism (the original had zero selection pressure)
+ *  - Subtree mutation in addition to arity-preserving point mutation
+ *  - Protected division and log (no NaN/Infinity individuals)
+ *  - Fitness = |target - value| (the original's double-abs accepted -x for x),
+ *    with a finite-guard and parsimony pressure against bloat
+ *  - Depth-capped offspring (bloat control)
+ *  - Plain data nodes + a dispatch table instead of 15 closures per node
+ *  - No parent pointers (crossover tracks parents during traversal),
+ *    which also removes the stale-parent bug in copy()
+ *  - No Array.prototype pollution
+ *  - Seedable PRNG (mulberry32) for reproducible runs
+ *  - Named constants (pi, e, phi) carried on the node, not regex'd at print time
+ *
+ * Runs in Node (`node symbolic-regression.js`) or the browser (exposes GP global).
+ */
+
+// ---------------------------------------------------------------------------
+// PRNG + small helpers
+// ---------------------------------------------------------------------------
+
+/** Deterministic 32-bit PRNG. Same seed -> same run, invaluable for debugging. */
+function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
 }
 
-////////////
+// ---------------------------------------------------------------------------
+// Operator dispatch table — the whole "language" lives here.
+// Adding an operator is one line; eval/print/arity all derive from it.
+// ---------------------------------------------------------------------------
 
-var rules_all = {
-    nodeTypes: {
-        'add': 2,
-        'sub': 2,
-        'mul': 2,
-        'div': 2,
-        'pow': 2,
-        'neg': 1,
-        'sin': 1,
-        'cos': 1,
-        'log': 1,
-        'atom': 0
-    },
-    nodeRules: {
-        'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-        'end': ['atom']
-    },
-    rulesOrder: {
-        'start': ['start', 'end'],
-        'end': ['']
-    },
-    mutationRules: {
-        'add': ['add', 'sub', 'mul', 'div', 'pow'],
-        'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-        'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-        'div': ['add', 'sub', 'mul', 'div', 'pow'],
-        'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-        'neg': ['neg', 'sin', 'cos', 'log'],
-        'sin': ['neg', 'sin', 'cos', 'log'],
-        'cos': ['neg', 'sin', 'cos', 'log'],
-        'log': ['neg', 'sin', 'cos', 'log'],
-        'atom': ['atom']
-    },
-    values: {
-        atom: ['randInt:10', '3.14159265', '2.71828183', '1.61803398']
-    }
+const OPS = {
+    add: { arity: 2, eval: (a, b) => a + b,                     print: (a, b) => `(${a}+${b})` },
+    sub: { arity: 2, eval: (a, b) => a - b,                     print: (a, b) => `(${a}-${b})` },
+    mul: { arity: 2, eval: (a, b) => a * b,                     print: (a, b) => `(${a}*${b})` },
+    div: { arity: 2, eval: (a, b) => (b === 0 ? 1 : a / b),     print: (a, b) => `(${a}/${b})` }, // protected
+    pow: { arity: 2, eval: (a, b) => Math.pow(a, b),            print: (a, b) => `(${a}^${b})` },
+    neg: { arity: 1, eval: (a) => -a,                           print: (a) => `(-${a})` },
+    sin: { arity: 1, eval: Math.sin,                            print: (a) => `sin(${a})` },
+    cos: { arity: 1, eval: Math.cos,                            print: (a) => `cos(${a})` },
+    log: { arity: 1, eval: (a) => Math.log(Math.abs(a) || 1),   print: (a) => `log(${a})` },     // protected
 };
 
-var pi = '3.14159265';
-var e = '2.71828183';
-var phi = '1.61803398';
+const OP_NAMES = Object.keys(OPS);
 
-function createRules(values) {
-    return {
-        nodeTypes: {
-            'add': 2,
-            'sub': 2,
-            'mul': 2,
-            'div': 2,
-            'pow': 2,
-            'neg': 1,
-            'sin': 1,
-            'cos': 1,
-            'log': 1,
-            'atom': 0
-        },
-        nodeRules: {
-            'start': ['add', 'sub', 'mul', 'div', 'pow', 'neg', 'sin', 'cos', 'log'],
-            'end': ['atom']
-        },
-        rulesOrder: {
-            'start': ['start', 'end'],
-            'end': ['']
-        },
-        mutationRules: {
-            'add': ['add', 'sub', 'mul', 'div', 'pow'],
-            'sub': ['add', 'sub', 'mul', 'div', 'pow'],
-            'mul': ['add', 'sub', 'mul', 'div', 'pow'],
-            'div': ['add', 'sub', 'mul', 'div', 'pow'],
-            'pow': ['add', 'sub', 'mul', 'div', 'pow'],
-            'neg': ['neg', 'sin', 'cos', 'log'],
-            'sin': ['neg', 'sin', 'cos', 'log'],
-            'cos': ['neg', 'sin', 'cos', 'log'],
-            'log': ['neg', 'sin', 'cos', 'log'],
-            'atom': ['atom']
-        },
-        values: {
-            atom: values
-        }
-    };
+// Point mutation stays arity-preserving (same nice property as the original).
+const SAME_ARITY = {
+    1: OP_NAMES.filter((op) => OPS[op].arity === 1),
+    2: OP_NAMES.filter((op) => OPS[op].arity === 2),
+};
+
+// ---------------------------------------------------------------------------
+// Tree = plain data. { type, children } for ops, { type:'atom', value, name? }
+// for leaves. No methods, no parent pointers -> cheap to create, clone, GC.
+// ---------------------------------------------------------------------------
+
+function evalNode(node) {
+    if (node.type === "atom") return node.value;
+    const op = OPS[node.type];
+    return op.arity === 1
+        ? op.eval(evalNode(node.children[0]))
+        : op.eval(evalNode(node.children[0]), evalNode(node.children[1]));
 }
 
-
-
-function Node(rules, type) {
-    this.children = [];
-
-    this.type = type;
-    this.arity = rules.nodeTypes[type];
-    this.parent = null;
-
-    this.getParent = function() {
-        return this.parent;
-    }
-
-    this.setParent = function(parent) {
-        this.parent = parent;
-    }
-
-    this.getType = function() {
-        return this.type;
-    }
-
-    this.setType = function(type) {
-        this.type = type;
-        return this;
-    }
-
-    this.getArity = function() {
-        return this.arity;
-    }
-
-    this.setValue = function(value) {
-        this.value = value;
-        return this;
-    }
-
-    this.getValue = function() {
-        return this.value;
-    }
-
-    this.setChild = function(index, child) {
-        if (index >= this.arity) {
-            return;
-        }
-        child.setParent(this);
-        this.children[index] = child;
-        return this;
-    }
-
-    this.setChildren = function(children) {
-        this.children = children;
-        return this;
-    }
-
-    this.getChild = function(index) {
-        if (index >= this.arity) {
-            return null;
-        }
-        return this.children[index];
-    }
-
-    this.getChildren = function() {
-        return this.children;
-    }
-
-    this.eval = function() {
-        if (this.type === 'atom') {
-            return this.value;
-        }
-
-        if (this.type === 'add') {
-            return this.children[0].eval() + this.children[1].eval();
-        }
-
-        if (this.type === 'sub') {
-            return this.children[0].eval() - this.children[1].eval();
-        }
-
-        if (this.type === 'mul') {
-            return this.children[0].eval() * this.children[1].eval();
-        }
-
-        if (this.type === 'div') {
-            var tmp = this.children[1].eval();
-            // if (tmp === 0) { TODO
-            //     return 0;
-            // }
-            return this.children[0].eval() / tmp;
-        }
-
-        if (this.type === 'pow') {
-            return Math.pow(this.children[0].eval(), this.children[1].eval());
-        }
-
-        if (this.type === 'neg') {
-            return -(this.children[0].eval());
-        }
-
-        if (this.type === 'sin') {
-            return Math.sin(this.children[0].eval());
-        }
-
-        if (this.type === 'cos') {
-            return Math.cos(this.children[0].eval());
-        }
-
-        if (this.type === 'log') {
-            return Math.log(this.children[0].eval());
-        }
-    }
-
-    this.evalToStr = function() {
-        if (this.type === 'atom') {
-            return this.value;
-        }
-
-        if (this.type === 'add') {
-            return '(' + this.children[0].evalToStr() + '+' + this.children[1].evalToStr() + ')';
-        }
-
-        if (this.type === 'sub') {
-            return '(' + this.children[0].evalToStr() + '-' + this.children[1].evalToStr() + ')';
-        }
-
-        if (this.type === 'mul') {
-            return '(' + this.children[0].evalToStr() + '*' + this.children[1].evalToStr() + ')';
-        }
-
-        if (this.type === 'div') {
-            return '(' + this.children[0].evalToStr() + '/' + this.children[1].evalToStr() + ')';
-        }
-
-        if (this.type === 'pow') {
-            return '(' + this.children[0].evalToStr() + '^' + this.children[1].evalToStr() + ')';
-        }
-
-        if (this.type === 'neg') {
-            return '(-' + this.children[0].evalToStr() + ')';
-        }
-
-        if (this.type === 'sin') {
-            return 'sin(' + this.children[0].evalToStr() + ')';
-        }
-
-        if (this.type === 'cos') {
-            return 'cos(' + this.children[0].evalToStr() + ')';
-        }
-
-        if (this.type === 'log') {
-            return 'log(' + this.children[0].evalToStr() + ')';
-        }
-    }
-
-    this.copy = function() {
-        var newNode = new Node(rules, this.type);
-        newNode.setValue(this.value);
-        newNode.setParent(this.parent);
-
-        for (var i = 0; i < this.arity; i++) {
-            var child = this.getChild(i).copy();
-            newNode.setChild(i, child);
-        }
-
-        return newNode;
-    }
+function printNode(node) {
+    if (node.type === "atom") return node.name ?? String(node.value);
+    return OPS[node.type].print(...node.children.map(printNode));
 }
 
-function Expression(rootNode) {
-    this.rootNode = rootNode;
-    this.fitness = 0;
-    this.targetValue = 0;
-    this.nodeList = [];
-    this.helper = new GeneticHelper();
-
-    this.getRootNode = function() {
-        return this.rootNode;
+function copyNode(node) {
+    if (node.type === "atom") {
+        return { type: "atom", value: node.value, name: node.name };
     }
-
-    this.createRandomExpression = function(maxLen, rules, startRule) {
-        this.rootNode = this.helper.createRandomNode(rules, startRule, 0, maxLen);
-        return this;
-    }
-
-    this.getNodeList = function() {
-        this.nodeList = [];
-        this.helper.createNodeList(this.rootNode, this.nodeList);
-        return this.nodeList;
-    }
-
-    this.eval = function() {
-        if (this.rootNode === null || this.rootNode === undefined) {
-            return 0;
-        }
-        return this.rootNode.eval();
-    }
-
-    this.evalToStr = function() {
-        if (this.rootNode === null || this.rootNode === undefined) {
-            return 0;
-        }
-        return this.rootNode.evalToStr();
-    }
-
-    this.evalTarget = function(targetValue) {
-        this.targetValue = targetValue;
-        var evalResult = this.eval();
-        this.fitness = Math.abs(Math.abs(targetValue) - Math.abs(evalResult));
-        return this.fitness;
-    }
-
-    this.setTarget = function(targetValue) {
-        this.targetValue = targetValue;
-        return this;
-    }
-
-    this.getFitness = function() {
-        return this.fitness;
-    }
-
-    this.copy = function() {
-        return new Expression(this.rootNode.copy());
-    }
-
+    return { type: node.type, children: node.children.map(copyNode) };
 }
 
-function Pool() {
-    this.elements = [];
-    this.bestElements = [];
-    this.newElements = [];
-
-    var helper = new GeneticHelper();
-    var that = this;
-
-    this.appendElements = function(newElements) {
-        this.elements = this.elements.concat(newElements);
-        return this;
-    }
-
-    this.getElements = function() {
-        return this.elements;
-    }
-
-    this.getNewElements = function() {
-        return this.newElements;
-    }
-
-    this.newGeneration = function(nrOfChildren, mutationFactor, rules) {
-        if (this.elements.length < 2) {
-            return;
-        }
-
-        this.newElements = [];
-
-        for (var i = 0; i < nrOfChildren; i++) {
-            var elem1 = this.elements.random().copy();
-            var elem2 = this.elements.random().copy();
-
-            helper.crossover(elem1, elem2);
-
-            if (Math.random() < mutationFactor) {
-                helper.mutate(rules, elem1);
-            }
-
-            this.newElements.push(elem1);
-        }
-        return this;
-    }
-
-    this.addRandomElements = function(nrOfElements, maxExprLength, rules) {
-        for (var i = 0; i < nrOfElements; i++) {
-            var nex = new Expression().createRandomExpression(maxExprLength, rules, 'start');
-            // gg.recurse(nex, 4); TODO
-            this.elements.push(nex);
-        }
-        return this;
-    }
-
-    this.evalTarget = function(targetValue, threshold) {
-        this.elements.forEach(function(elem) {
-            var fitness = elem.evalTarget(targetValue);
-            if (Math.abs(fitness) < threshold) {
-                that.bestElements.push(elem);
-            }
-        });
-        return this.bestElements;
-    }
-
+function countNodes(node) {
+    if (node.type === "atom") return 1;
+    return 1 + node.children.reduce((sum, c) => sum + countNodes(c), 0);
 }
 
-function EvolutionStep(params, withElements) {
-    var bestElements = [];
-    var newGeneration = [];
-    var bestFitness = 0;
-    var genetic = new GeneticHelper();
-    var error = params.targetValue * params.errorPercent / 100;
-    var gen = new Pool();
-
-    if (withElements === undefined || withElements === null || withElements.length === 0) {
-        gen.addRandomElements(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
-    } else {
-        gen.appendElements(withElements);
-    }
-
-    var topElems = gen.evalTarget(params.targetValue, error);
-    if (topElems.length > 0) {
-        bestElements.push(topElems[0]);
-    }
-
-    newGeneration = newGeneration.concat(gen.getElements());
-
-    for (var i = 0; i < params.maxNrGenerations; i++) {
-        gen = new Pool();
-        gen.appendElements(newGeneration);
-        gen.newGeneration(params.newGenerationNrOfChildren, params.mutationRate, params.rules);
-
-        newGeneration = [];
-        newGeneration = newGeneration.concat(gen.getNewElements());
-
-        topElems = gen.evalTarget(params.targetValue, error);
-        if (topElems.length > 0) {
-            bestElements.push(topElems[0]);
-        }
-
-    }
-
-    if (bestElements.length === 0) {
-        var tmpElems = gen.getElements();
-        genetic.sort(tmpElems);
-        bestElements.push(tmpElems[0]);
-    }
-
-    return bestElements;
-
+function treeDepth(node) {
+    if (node.type === "atom") return 1;
+    return 1 + Math.max(...node.children.map(treeDepth));
 }
 
-function Evolve(params) {
-    var bestElements = [];
-    var genetic = new GeneticHelper();
-
-    for (var i = 0; i < 100; i++) {
-        bestElements = bestElements.concat(EvolutionStep(params));
+/**
+ * Flatten the tree into [{ node, parent, index }] via BFS.
+ * Parent/index are tracked here, at traversal time, instead of being stored on
+ * the node — so clones can never carry stale parent references.
+ */
+function nodeList(root) {
+    const list = [{ node: root, parent: null, index: -1 }];
+    for (let i = 0; i < list.length; i++) {
+        const { node } = list[i];
+        if (node.type !== "atom") {
+            node.children.forEach((child, index) =>
+                list.push({ node: child, parent: node, index })
+            );
+        }
     }
+    return list;
+}
 
-    genetic.sort(bestElements);
+// ---------------------------------------------------------------------------
+// The engine. A factory closing over config + rng, so runs are reproducible
+// and nothing leaks into module/global scope.
+// ---------------------------------------------------------------------------
 
-    var result = {
-        eval: bestElements[0].eval(),
-        strEval: bestElements[0].evalToStr(),
-        mathExprEval: mathPrint(bestElements[0]),
-        error: bestElements[0].getFitness()
+function createEngine(userConfig = {}) {
+    const config = {
+        seed: Date.now() & 0xffffffff,
+        populationSize: 1000,
+        generations: 40,
+        tournamentSize: 4,     // selection pressure: pick k at random, keep the fittest
+        elitism: 2,            // copy the top n unchanged into each new generation
+        crossoverRate: 0.9,
+        mutationRate: 0.2,
+        subtreeMutationRate: 0.5, // within mutation: subtree vs point mutation
+        minInitDepth: 2,
+        maxInitDepth: 5,
+        maxDepth: 9,           // hard cap on offspring depth (bloat control)
+        parsimony: 1e-3,       // fitness penalty per node (bloat control)
+        errorPercent: 1,       // stop when |target - value| <= |target| * this / 100
+        ...userConfig,
     };
 
-    bestElements = bestElements.concat(EvolutionStep(params, bestElements));
+    const rng = mulberry32(config.seed);
+    const pick = (arr) => arr[(rng() * arr.length) | 0];
 
-    genetic.sort(bestElements);
+    // Terminal set. Named constants keep pretty-printing exact — no regex
+    // find/replace on stringified floats like the original mathPrint did.
+    const ATOMS = [
+        { name: "pi",  value: Math.PI },
+        { name: "e",   value: Math.E },
+        { name: "phi", value: (1 + Math.sqrt(5)) / 2 },
+        { gen: () => (rng() * 10) | 0 }, // randInt:10
+    ];
 
-    var result = {
-        eval: bestElements[0].eval(),
-        strEval: bestElements[0].evalToStr(),
-        mathExprEval: mathPrint(bestElements[0]),
-        error: bestElements[0].getFitness()
-    };
+    function makeAtom() {
+        const spec = pick(ATOMS);
+        return spec.gen
+            ? { type: "atom", value: spec.gen() }
+            : { type: "atom", value: spec.value, name: spec.name };
+    }
 
-    return result;
-}
+    /**
+     * Random tree, "grow" or "full" method.
+     * - full: every branch reaches maxDepth (bushy trees)
+     * - grow: branches may terminate early (scraggly trees)
+     * The initial population mixes both across a depth range
+     * (ramped half-and-half, the standard GP initialization).
+     */
+    function randomTree(maxDepth, full, depth = 0) {
+        const atDepthLimit = depth >= maxDepth;
+        const wantAtom = atDepthLimit || (!full && depth > 0 && rng() < 0.3);
+        if (wantAtom) return makeAtom();
 
-
-
-function GeneticHelper() {
-
-    this.crossover = function(expression1, expression2) {
-        var node1 = expression1.getNodeList().random();
-
-        var parent1 = node1.getParent();
-        if (parent1 === null || parent1 === undefined) {
-            parent1 = node1;
+        const type = pick(OP_NAMES);
+        const children = [];
+        for (let i = 0; i < OPS[type].arity; i++) {
+            children.push(randomTree(maxDepth, full, depth + 1));
         }
+        return { type, children };
+    }
 
-        var arity1 = parent1.getArity();
-        var child1 = parent1.getChildren().random();
-
-        //////////
-        var node2 = expression2.getNodeList().random();
-
-        var parent2 = node2.getParent();
-        if (parent2 === null || parent2 === undefined) {
-            parent2 = node2;
+    function rampedPopulation(size) {
+        const population = [];
+        const { minInitDepth, maxInitDepth } = config;
+        for (let i = 0; i < size; i++) {
+            const depth = minInitDepth + (i % (maxInitDepth - minInitDepth + 1));
+            population.push(randomTree(depth, i % 2 === 0));
         }
+        return population;
+    }
 
-        var child2 = parent2.getChildren().random();
+    // -- fitness ------------------------------------------------------------
 
-        ////////
-        child1.setChild(Math.floor(Math.random() * arity1), child2);
-    };
+    /**
+     * rawError:  |target - value|, Infinity for non-finite results.
+     *            (No double-abs: an expression evaluating to -42 is NOT a
+     *            solution for target 42.)
+     * fitness:   rawError + parsimony * size — what selection actually uses,
+     *            so equally-accurate smaller trees win.
+     */
+    function assess(tree, target) {
+        const value = evalNode(tree);
+        const rawError = Number.isFinite(value) ? Math.abs(target - value) : Infinity;
+        const fitness = rawError === Infinity
+            ? Infinity
+            : rawError + config.parsimony * countNodes(tree);
+        return { tree, value, rawError, fitness };
+    }
 
-    this.mutate = function(rules, expression) {
-        var node = expression.getNodeList().random();
-        var newType = rules.mutationRules[node.getType()].random();
+    // -- genetic operators ----------------------------------------------------
 
-        node.setType(newType);
+    /** Canonical subtree crossover: a random node in a copy of `a` is replaced
+     *  by a copy of a random subtree of `b`. Always changes the tree (unless
+     *  the root itself is selected, in which case the donor becomes the tree). */
+    function crossover(a, b) {
+        const child = copyNode(a);
+        const donor = copyNode(pick(nodeList(b)).node);
+        const spot = pick(nodeList(child));
+        if (spot.parent === null) return donor;
+        spot.parent.children[spot.index] = donor;
+        return child;
+    }
 
-        if (node.getType() === 'atom') {
-            var value = rules.values.atom.random();
-            var index = value.indexOf(':');
+    function mutate(tree) {
+        const child = copyNode(tree);
+        const spot = pick(nodeList(child));
 
-            if (index > 0) {
-                var parts = value.split(':');
-                var max = parseFloat(parts[1]);
+        if (rng() < config.subtreeMutationRate) {
+            // Subtree mutation: fresh genetic material.
+            const fresh = randomTree(2 + ((rng() * 3) | 0), false);
+            if (spot.parent === null) return fresh;
+            spot.parent.children[spot.index] = fresh;
+        } else if (spot.node.type === "atom") {
+            // Point mutation on a leaf: new terminal value.
+            const fresh = makeAtom();
+            spot.node.value = fresh.value;
+            if (fresh.name) spot.node.name = fresh.name; else delete spot.node.name;
+        } else {
+            // Point mutation on an operator: arity-preserving type swap,
+            // so the children stay valid (same trick as the original).
+            spot.node.type = pick(SAME_ARITY[OPS[spot.node.type].arity]);
+        }
+        return child;
+    }
 
-                if (parts[0] === 'randInt') {
-                    node.setValue(Math.floor(Math.random() * max));
-                } else if (parts[0] === 'randFloat') {
-                    node.setValue(Math.random() * max);
+    function tournament(scored) {
+        let best = scored[(rng() * scored.length) | 0];
+        for (let i = 1; i < config.tournamentSize; i++) {
+            const rival = scored[(rng() * scored.length) | 0];
+            if (rival.fitness < best.fitness) best = rival;
+        }
+        return best;
+    }
+
+    // -- main loop ------------------------------------------------------------
+
+    /**
+     * Evolve expressions toward `target`. Returns
+     * { value, expr, error, generations, tree }.
+     */
+    function evolve(target, onGeneration) {
+        const tolerance = Math.abs(target) * config.errorPercent / 100;
+        let scored = rampedPopulation(config.populationSize)
+            .map((tree) => assess(tree, target));
+        scored.sort((a, b) => a.fitness - b.fitness);
+
+        let best = scored[0];
+        let generation = 0;
+
+        for (; generation < config.generations; generation++) {
+            if (best.rawError <= tolerance) break;
+
+            const next = [];
+
+            // Elitism: the best individuals survive verbatim, so the best
+            // fitness can never regress between generations.
+            for (let i = 0; i < config.elitism; i++) next.push(scored[i]);
+
+            while (next.length < config.populationSize) {
+                const parent = tournament(scored);
+                let childTree;
+
+                if (rng() < config.crossoverRate) {
+                    childTree = crossover(parent.tree, tournament(scored).tree);
+                } else {
+                    childTree = copyNode(parent.tree);
                 }
-            } else {
-                node.setValue(parseFloat(value));
-            }
-        }
-    }
-
-    this.recurse = function(expression, depth) {
-        var level = 0;
-        var nextIndex = -1;
-
-        if (depth === undefined) {
-            depth = 1;
-        }
-
-        var originalExpr = expression.getRootNode().copy();
-        var nodeListOrig = expression.getNodeList();
-        var totalNodesOrig = nodeListOrig.length;
-
-        while (level < depth) {
-            var nodeList = expression.getNodeList();
-            var totalNodes = nodeList.length;
-
-            if (totalNodes < 3) {
-                return;
-            }
-
-            if (level === 0) {
-                for (var i = 0; i < 10; i++) { //TODO
-                    nextIndex = Math.floor(Math.random() * totalNodes);
-                    if (nextIndex !== 0 && nodeList[nextIndex].getArity() !== 0) {
-                        break;
-                    }
+                if (rng() < config.mutationRate) {
+                    childTree = mutate(childTree);
                 }
-            }
-            nextIndex += (level > 0 ? totalNodesOrig - 1 : 0)
 
-            var node = nodeList[nextIndex];
-
-            if (node !== undefined) {
-                node.setChild(0, originalExpr.copy());
-            }
-
-            level++;
-        }
-    }
-
-    this.sort = function(exprArr) {
-        exprArr.sort(function(a, b) {
-            return a.getFitness() - b.getFitness();
-        });
-    }
-
-    this.createRandomNode = function (rules, rule, index, maxLen) {
-        var type = rules.nodeRules[rule].random();
-        var nextRule = rules.rulesOrder[rule].random();
-
-        if (index >= maxLen) {
-            nextRule = 'end';
-        }
-
-        var nn = new Node(rules, type);
-
-        if (type == 'atom') {
-            var value = rules.values.atom.random();
-            var index = value.indexOf(':');
-
-            if (index > 0) {
-                var parts = value.split(':');
-                var max = parseFloat(parts[1]);
-
-                if (parts[0] === 'randInt') {
-                    nn.setValue(Math.floor(Math.random() * max));
-                } else if (parts[0] === 'randFloat') {
-                    nn.setValue(Math.random() * max);
+                // Bloat control: offspring past the depth cap are replaced by
+                // their (already valid) parent rather than re-rolled forever.
+                if (treeDepth(childTree) > config.maxDepth) {
+                    childTree = copyNode(parent.tree);
                 }
-            } else {
-                nn.setValue(parseFloat(value));
+
+                next.push(assess(childTree, target));
             }
+
+            scored = next;
+            scored.sort((a, b) => a.fitness - b.fitness);
+            if (scored[0].fitness < best.fitness) best = scored[0];
+            if (onGeneration) onGeneration(generation, best);
         }
 
-        if (nextRule !== '') {
-            for (var i = 0; i < nn.getArity(); i++) {
-                index++;
-                nn.setChild(i, this.createRandomNode(rules, nextRule, index, maxLen));
-            }
-        }
-
-        return nn;
+        return {
+            value: best.value,
+            expr: prettyPrint(best.tree),
+            error: best.rawError,
+            generations: generation,
+            tree: best.tree,
+        };
     }
 
-    this.createNodeList = function (node, list) {
-        var tmpList = [];
-        tmpList.push(node);
-        while (tmpList.length > 0) {
-            var nextNode = tmpList.splice(0, 1)[0];
-            list.push(nextNode);
-            for (var i = 0; i < nextNode.getArity(); i++) {
-                tmpList.push(nextNode.getChild(i));
+    /**
+     * Random target generator (the original generateLeftExpression):
+     * keeps sampling until it finds a non-trivial expression with a
+     * finite, non-zero value.
+     */
+    function randomTarget(minNodes = 6, maxTries = 10000) {
+        for (let i = 0; i < maxTries; i++) {
+            const tree = randomTree(4, false);
+            if (countNodes(tree) < minNodes) continue;
+            const value = evalNode(tree);
+            if (Number.isFinite(value) && value !== 0) {
+                return { value, expr: prettyPrint(tree), tree };
             }
         }
+        throw new Error("randomTarget: no viable expression found");
     }
 
+    return { config, evolve, randomTarget, randomTree, crossover, mutate, assess };
 }
 
-function mathPrint(elem) {
-    var result = elem.evalToStr();
-    result = result.replace(/\+\-/g, '-');
-    result = result.replace(/\+\+/g, '+');
-    result = result.replace(/\-\-/g, '+');
-    result = result.replace(/3\.14159265/g, 'pi');
-    result = result.replace(/2\.71828183/g, 'e');
-    result = result.replace(/1\.61803398/g, 'phi');
+// ---------------------------------------------------------------------------
+// Pretty printing
+// ---------------------------------------------------------------------------
 
-    return '`' + result + '`';
+function prettyPrint(tree) {
+    return printNode(tree)
+        .replace(/\+-/g, "-")
+        .replace(/--/g, "+");
 }
 
-function generateLeftExpression(rules) {
-
-    var gen = new Pool();
-    gen.addRandomElements(1000, 5, rules);
-    var elems = gen.getElements();
-    var leftElem = null;
-
-    elems.forEach(function(elem) {
-        if (elem.getNodeList().length > 5 && leftElem === null) {
-            var res = elem.eval()
-            if (!isNaN(res) && isFinite(res) && res !== 0) {
-                leftElem = elem;
-            }
-        }
-    });
-
-    var result = {
-        eval: leftElem.eval(),
-        strEval: leftElem.evalToStr(),
-        mathExprEval: mathPrint(leftElem),
-        error: 0
-    };
-
-
-    return result;
-
-}
-
+// ---------------------------------------------------------------------------
+// Demo
+// ---------------------------------------------------------------------------
 
 function main() {
-    var leftElem = generateLeftExpression();
-    var leftElemVal = leftElem.eval;
+    const gp = createEngine({ seed: 42 });
 
-    var params = {
-        targetValue: leftElemVal,
-        errorPercent: 1,
-        maxExprLength: 30,
-        mutationRate: 0.2,
-        minNrGenerations: 10,
-        maxNrGenerations: 20,
-        newGenerationNrOfChildren : 1000,
-        rules: rules_pi_nr
-    };
+    const target = gp.randomTarget();
+    console.log("target expression:", target.expr);
+    console.log("target value:     ", target.value);
+    console.log();
 
-    var res = Evolve(params);
+    const t0 = Date.now();
+    const result = gp.evolve(target.value, (gen, best) => {
+        if (gen % 5 === 0) {
+            console.log(`gen ${String(gen).padStart(3)}  error=${best.rawError.toPrecision(6)}  ${prettyPrint(best.tree)}`);
+        }
+    });
+    const elapsed = Date.now() - t0;
 
-    console.log(leftElem, res);
+    console.log();
+    console.log("found expression: ", result.expr);
+    console.log("found value:      ", result.value);
+    console.log("absolute error:   ", result.error);
+    console.log(`generations:       ${result.generations} (${elapsed} ms)`);
 
-    return [leftElem.mathExprEval, res.mathExprEval];
+    return [target.expr, result.expr];
+}
+
+// Node + browser friendly.
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { createEngine, prettyPrint, OPS };
+    if (require.main === module) main();
+} else if (typeof window !== "undefined") {
+    window.GP = { createEngine, prettyPrint, OPS, main };
 }

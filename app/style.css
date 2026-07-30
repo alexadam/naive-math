@@ -1,36 +1,318 @@
+:root {
+    --bg-start: #eef1fb;
+    --bg-end: #e2e8f6;
+    --card-bg: #ffffff;
+    --text-primary: #1a1d29;
+    --text-secondary: #6b7280;
+    --accent: #4f46e5;
+    --accent-dark: #4338ca;
+    --accent-soft: #eef0fe;
+    --border: #e5e7eb;
+    --error-bg: #fef2f2;
+    --error-text: #b91c1c;
+    --radius: 16px;
+    --shadow: 0 10px 30px rgba(30, 41, 59, 0.08), 0 2px 6px rgba(30, 41, 59, 0.06);
+}
+
+* {
+    box-sizing: border-box;
+}
 
 body {
-    font-size: 14px;
-    font-family: helvetica;
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    color: var(--text-primary);
+    background: linear-gradient(160deg, var(--bg-start), var(--bg-end));
 }
 
-.expressions {
-    padding-top: 100px;
+.hidden {
+    display: none !important;
 }
 
-.padding-50 {
-    padding-top: 50px;
+.app-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
 }
 
-.padding-25 {
-    padding-top: 25px;
+.card {
+    width: 100%;
+    max-width: 1400px;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 48px 56px;
 }
 
-.math-expr-holder {
-    padding-top: 5%;
-    font-size: 1.75rem;
+.app-header {
+    text-align: center;
+    margin-bottom: 36px;
 }
 
-.equal {
-    padding-top: 10%;
-    font-size: 4rem;
+.app-header h1 {
+    margin: 0 0 8px;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
-.eval-error {
-    background-color: #FF7858;
-    color: white;
+.app-header .subtitle {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
 }
 
-.eval-value {
-    padding: 10px;
+.equation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+}
+
+.expr-box {
+    flex: 1;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    font-size: 1.5rem;
+    color: var(--text-primary);
+    overflow-x: auto;
+}
+
+.expr-box.text-right {
+    justify-content: flex-end;
+}
+
+.expr-box.text-left {
+    justify-content: flex-start;
+}
+
+.equals {
+    flex: 0 0 auto;
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.params {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+    background: var(--accent-soft);
+    border-radius: 12px;
+}
+
+.param {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 110px;
+}
+
+.param label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+}
+
+.param input {
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text-primary);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.param input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.actions {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 24px;
+}
+
+.btn-primary {
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 32px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary:hover {
+    background: var(--accent-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-bottom: 24px;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.results {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.result-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 14px 12px;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.result-card-error {
+    flex: 0 0 140px;
+    background: var(--error-bg);
+}
+
+.result-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+.result-card-error .result-label {
+    color: var(--error-text);
+}
+
+.result-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.result-card-error .result-value {
+    color: var(--error-text);
+}
+
+.ascii-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding-top: 20px;
+}
+
+.ascii-text {
+    flex: 1;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.ascii-text.text-right {
+    text-align: right;
+}
+
+.ascii-text.text-left {
+    text-align: left;
+}
+
+.btn-ghost {
+    flex: 0 0 auto;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.btn-ghost:hover {
+    background: var(--accent);
+    color: #fff;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: 32px 24px;
+    }
+
+    .equation {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .expr-box.text-right,
+    .expr-box.text-left {
+        justify-content: center;
+    }
+
+    .results {
+        flex-direction: column;
+    }
+
+    .result-card-error {
+        flex: 1;
+    }
+
+    .ascii-row {
+        flex-direction: column;
+    }
 }
