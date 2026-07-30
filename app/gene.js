@@ -1,15 +1,22 @@
 "use strict";
 
 /**
- * Symbolic regression via genetic programming — modernized rewrite.
+ * Symbolic regression via genetic programming.
+ *
+ * The terminal set contains a *variable* `x` alongside the named constants, and
+ * fitness is the RMS error over a set of sampled (x, y) points. That is what
+ * makes this symbolic regression rather than constant approximation: the target
+ * is a function, not a scalar, so a solution has to be right everywhere in the
+ * domain instead of hitting one number by arithmetic coincidence. Passing a
+ * plain number as the target still works — it is just the one-point case.
  *
  * Fixes and improvements over the original:
  *  - Real subtree crossover (the original silently no-op'd most of the time)
  *  - Tournament selection + elitism (the original had zero selection pressure)
  *  - Subtree mutation in addition to arity-preserving point mutation
- *  - Protected division and log (no NaN/Infinity individuals)
- *  - Fitness = |target - value| (the original's double-abs accepted -x for x),
- *    with a finite-guard and parsimony pressure against bloat
+ *  - Protected division, power, and log (no NaN/Infinity from those operators)
+ *  - Fitness = RMS error over the sample points (the original's double-abs
+ *    accepted -x for x), with a finite-guard and parsimony pressure vs. bloat
  *  - Depth-capped offspring (bloat control)
  *  - Plain data nodes + a dispatch table instead of 15 closures per node
  *  - No parent pointers (crossover tracks parents during traversal),
@@ -47,7 +54,7 @@ const OPS = {
     sub: { arity: 2, eval: (a, b) => a - b,                     print: (a, b) => `(${a}-${b})` },
     mul: { arity: 2, eval: (a, b) => a * b,                     print: (a, b) => `(${a}*${b})` },
     div: { arity: 2, eval: (a, b) => (b === 0 ? 1 : a / b),     print: (a, b) => `(${a}/${b})` }, // protected
-    pow: { arity: 2, eval: (a, b) => Math.pow(a, b),            print: (a, b) => `(${a}^${b})` },
+    pow: { arity: 2, eval: protectedPow,                         print: (a, b) => `(${a}^${b})` },
     neg: { arity: 1, eval: (a) => -a,                           print: (a) => `(-${a})` },
     sin: { arity: 1, eval: Math.sin,                            print: (a) => `sin(${a})` },
     cos: { arity: 1, eval: Math.cos,                            print: (a) => `cos(${a})` },
@@ -55,6 +62,19 @@ const OPS = {
 };
 
 const OP_NAMES = Object.keys(OPS);
+const POW_LIMIT = 1e12;
+
+/**
+ * Power is undefined in the real-valued search space for a negative base and a
+ * fractional exponent, and it overflows easily. Invalid or explosive powers
+ * become the neutral fallback 1 instead of poisoning an entire individual.
+ */
+function protectedPow(base, exponent) {
+    if (!Number.isFinite(base) || !Number.isFinite(exponent)) return 1;
+    if (base < 0 && !Number.isInteger(exponent)) return 1;
+    const value = Math.pow(base, exponent);
+    return Number.isFinite(value) && Math.abs(value) <= POW_LIMIT ? value : 1;
+}
 
 // Point mutation stays arity-preserving (same nice property as the original).
 const SAME_ARITY = {
@@ -64,15 +84,16 @@ const SAME_ARITY = {
 
 // ---------------------------------------------------------------------------
 // Tree = plain data. { type, children } for ops, { type:'atom', value, name? }
-// for leaves. No methods, no parent pointers -> cheap to create, clone, GC.
+// for leaves; the variable is { type:'atom', name:'x', variable:true }.
+// No methods, no parent pointers -> cheap to create, clone, GC.
 // ---------------------------------------------------------------------------
 
-function evalNode(node) {
-    if (node.type === "atom") return node.value;
+function evalNode(node, x) {
+    if (node.type === "atom") return node.variable ? x : node.value;
     const op = OPS[node.type];
     return op.arity === 1
-        ? op.eval(evalNode(node.children[0]))
-        : op.eval(evalNode(node.children[0]), evalNode(node.children[1]));
+        ? op.eval(evalNode(node.children[0], x))
+        : op.eval(evalNode(node.children[0], x), evalNode(node.children[1], x));
 }
 
 function printNode(node) {
@@ -82,9 +103,78 @@ function printNode(node) {
 
 function copyNode(node) {
     if (node.type === "atom") {
-        return { type: "atom", value: node.value, name: node.name };
+        return { type: "atom", value: node.value, name: node.name, variable: node.variable };
     }
     return { type: node.type, children: node.children.map(copyNode) };
+}
+
+function atom(value) {
+    return { type: "atom", value };
+}
+
+function isNumberAtom(node, value) {
+    return node.type === "atom" &&
+        node.variable !== true &&
+        node.name === undefined &&
+        (value === undefined || node.value === value);
+}
+
+function isNegativeNumberAtom(node) {
+    return node.type === "atom" &&
+        node.variable !== true &&
+        node.name === undefined &&
+        node.value < 0;
+}
+
+/**
+ * Simplify the expression tree before exposing it. Keeping this structural
+ * avoids the old string rewrites and also removes common GP identity clutter.
+ */
+function simplifyTree(node) {
+    if (node.type === "atom") return copyNode(node);
+
+    const children = node.children.map(simplifyTree);
+    const left = children[0];
+    const right = children[1];
+
+    if (node.type === "neg") {
+        if (left.type === "neg") return left.children[0];
+        if (isNumberAtom(left)) return atom(-left.value);
+    }
+
+    if (node.type === "add") {
+        if (isNumberAtom(left, 0)) return right;
+        if (isNumberAtom(right, 0)) return left;
+        if (right.type === "neg") return simplifyTree({ type: "sub", children: [left, right.children[0]] });
+        if (isNegativeNumberAtom(right)) return { type: "sub", children: [left, atom(-right.value)] };
+    }
+
+    if (node.type === "sub") {
+        if (isNumberAtom(right, 0)) return left;
+        if (right.type === "neg") return simplifyTree({ type: "add", children: [left, right.children[0]] });
+        if (isNegativeNumberAtom(right)) return { type: "add", children: [left, atom(-right.value)] };
+    }
+
+    if (node.type === "mul") {
+        if (isNumberAtom(left, 0) || isNumberAtom(right, 0)) return atom(0);
+        if (isNumberAtom(left, 1)) return right;
+        if (isNumberAtom(right, 1)) return left;
+    }
+
+    if (node.type === "div" && isNumberAtom(right, 1)) return left;
+
+    if (node.type === "pow") {
+        if (isNumberAtom(right, 0) || isNumberAtom(left, 1)) return atom(1);
+        if (isNumberAtom(right, 1)) return left;
+    }
+
+    return { type: node.type, children };
+}
+
+/** Does this tree actually depend on x? A constant "fit" to a curve is a red flag. */
+function usesVariable(node) {
+    if (node.type === "atom") return node.variable === true;
+    return node.children.some(usesVariable);
 }
 
 function countNodes(node) {
@@ -122,7 +212,7 @@ function nodeList(root) {
 
 function createEngine(userConfig = {}) {
     const config = {
-        seed: Date.now() & 0xffffffff,
+        seed: Date.now() >>> 0,
         populationSize: 1000,
         generations: 40,
         tournamentSize: 4,     // selection pressure: pick k at random, keep the fittest
@@ -133,25 +223,82 @@ function createEngine(userConfig = {}) {
         minInitDepth: 2,
         maxInitDepth: 5,
         maxDepth: 9,           // hard cap on offspring depth (bloat control)
-        parsimony: 1e-3,       // fitness penalty per node (bloat control)
-        errorPercent: 1,       // stop when |target - value| <= |target| * this / 100
+        parsimony: 1e-3,       // fraction of target scale charged per node
+        errorPercent: 1,       // relative stopping tolerance
+        absoluteTolerance: 1e-9, // stopping/fitness scale floor near zero
+        samples: 20,           // sample points of x used to score a function target
+        xMin: -3,              // default sampling domain
+        xMax: 3,
         ...userConfig,
     };
 
+    validateConfig(config);
     const rng = mulberry32(config.seed);
     const pick = (arr) => arr[(rng() * arr.length) | 0];
 
     // Terminal set. Named constants keep pretty-printing exact — no regex
     // find/replace on stringified floats like the original mathPrint did.
-    const ATOMS = [
+    // The two `gen` entries are ephemeral random constants: one integer, one
+    // real, because coefficients like 0.5 are not reachable from integers alone.
+    const CONST_ATOMS = [
         { name: "pi",  value: Math.PI },
         { name: "e",   value: Math.E },
         { name: "phi", value: (1 + Math.sqrt(5)) / 2 },
-        { gen: () => (rng() * 10) | 0 }, // randInt:10
+        { gen: () => (rng() * 10) | 0 },                       // randInt:10
+        { gen: () => Math.round((rng() * 10 - 5) * 1000) / 1000 }, // real in [-5, 5]
     ];
 
-    function makeAtom() {
-        const spec = pick(ATOMS);
+    // x is repeated so it wins roughly a third of terminal draws — without that
+    // weighting the search spends most of its budget on constant subtrees.
+    const VARIABLE_ATOM = { name: "x", variable: true };
+    const VAR_ATOMS = [VARIABLE_ATOM, VARIABLE_ATOM, VARIABLE_ATOM, ...CONST_ATOMS];
+
+    function requireInteger(name, min, max = Infinity) {
+        const value = config[name];
+        if (!Number.isInteger(value) || value < min || value > max) {
+            const range = Number.isFinite(max)
+                ? `from ${min} to ${max}`
+                : `of at least ${min}`;
+            throw new RangeError(`${name} must be an integer ${range}`);
+        }
+    }
+
+    function requireNumber(name, min, max = Infinity, inclusiveMin = true) {
+        const value = config[name];
+        if (!Number.isFinite(value)) {
+            throw new RangeError(`${name} must be a finite number`);
+        }
+        const belowMin = inclusiveMin ? value < min : value <= min;
+        if (belowMin || value > max) {
+            const relation = inclusiveMin ? "at least" : "greater than";
+            throw new RangeError(`${name} must be a finite number ${relation} ${min}`);
+        }
+    }
+
+    function validateConfig() {
+        requireInteger("seed", 0, 0xffffffff);
+        requireInteger("populationSize", 2);
+        requireInteger("generations", 1);
+        requireInteger("tournamentSize", 1);
+        requireInteger("elitism", 0, config.populationSize - 1);
+        requireInteger("minInitDepth", 1);
+        requireInteger("maxInitDepth", config.minInitDepth);
+        requireInteger("maxDepth", config.maxInitDepth);
+        requireInteger("samples", 2);
+        requireNumber("crossoverRate", 0, 1);
+        requireNumber("mutationRate", 0, 1);
+        requireNumber("subtreeMutationRate", 0, 1);
+        requireNumber("parsimony", 0);
+        requireNumber("errorPercent", 0);
+        requireNumber("absoluteTolerance", 0, Infinity, false);
+        requireNumber("xMin", -Infinity);
+        requireNumber("xMax", -Infinity);
+        if (config.xMin >= config.xMax) throw new RangeError("xMin must be less than xMax");
+    }
+
+    function makeAtom(atoms) {
+        const spec = pick(atoms);
+        if (spec.variable) return { type: "atom", name: "x", variable: true };
         return spec.gen
             ? { type: "atom", value: spec.gen() }
             : { type: "atom", value: spec.value, name: spec.name };
@@ -164,45 +311,110 @@ function createEngine(userConfig = {}) {
      * The initial population mixes both across a depth range
      * (ramped half-and-half, the standard GP initialization).
      */
-    function randomTree(maxDepth, full, depth = 0) {
+    function randomTree(maxDepth, full, depth = 0, atoms = CONST_ATOMS) {
         const atDepthLimit = depth >= maxDepth;
         const wantAtom = atDepthLimit || (!full && depth > 0 && rng() < 0.3);
-        if (wantAtom) return makeAtom();
+        if (wantAtom) return makeAtom(atoms);
 
         const type = pick(OP_NAMES);
         const children = [];
         for (let i = 0; i < OPS[type].arity; i++) {
-            children.push(randomTree(maxDepth, full, depth + 1));
+            children.push(randomTree(maxDepth, full, depth + 1, atoms));
         }
         return { type, children };
     }
 
-    function rampedPopulation(size) {
+    function rampedPopulation(size, atoms) {
         const population = [];
         const { minInitDepth, maxInitDepth } = config;
         for (let i = 0; i < size; i++) {
             const depth = minInitDepth + (i % (maxInitDepth - minInitDepth + 1));
-            population.push(randomTree(depth, i % 2 === 0));
+            population.push(randomTree(depth, i % 2 === 0, 0, atoms));
         }
         return population;
+    }
+
+    // -- the problem ----------------------------------------------------------
+
+    function linspace(min, max, count) {
+        if (count < 2) return [min];
+        const step = (max - min) / (count - 1);
+        return Array.from({ length: count }, (_, i) => min + i * step);
+    }
+
+    /**
+     * Normalize whatever the caller passed as a target into sample points.
+     *
+     *   number            -> a single point; classic constant approximation
+     *   f(x)              -> `samples` points over [xMin, xMax]
+     *   [{x, y}] / [[x,y]]-> use the given points verbatim
+     *
+     * `scale` is the RMS magnitude of the target values; the stopping tolerance
+     * is a percentage of it, so "1% error" means the same thing in every mode.
+     */
+    function makeProblem(target, options = {}) {
+        if (typeof target === "number") {
+            if (!Number.isFinite(target)) throw new TypeError("target must be finite");
+            return { points: [{ x: 0, y: target }], variable: false, scale: Math.abs(target) };
+        }
+
+        let points;
+        if (Array.isArray(target)) {
+            points = target.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : { x: p.x, y: p.y }));
+        } else if (typeof target === "function") {
+            const xMin = options.xMin ?? config.xMin;
+            const xMax = options.xMax ?? config.xMax;
+            const count = options.samples ?? config.samples;
+            if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax) {
+                throw new RangeError("xMin and xMax must be finite, with xMin less than xMax");
+            }
+            if (!Number.isInteger(count) || count < 2) {
+                throw new RangeError("samples must be an integer of at least 2");
+            }
+            points = linspace(xMin, xMax, count).map((x) => ({ x, y: target(x) }));
+        } else {
+            throw new TypeError("target must be a number, a function of x, or an array of points");
+        }
+
+        // Drop points where the target itself is undefined (log at x<=0, poles…)
+        // rather than making them unreachable Infinity penalties for everyone.
+        points = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+        if (points.length === 0) throw new Error("target has no finite sample points in this domain");
+
+        const scale = Math.sqrt(points.reduce((s, p) => s + p.y * p.y, 0) / points.length);
+        return { points, variable: true, scale };
     }
 
     // -- fitness ------------------------------------------------------------
 
     /**
-     * rawError:  |target - value|, Infinity for non-finite results.
-     *            (No double-abs: an expression evaluating to -42 is NOT a
-     *            solution for target 42.)
-     * fitness:   rawError + parsimony * size — what selection actually uses,
-     *            so equally-accurate smaller trees win.
+     * rawError:  RMS error over the sample points, Infinity if the tree is
+     *            undefined anywhere in the domain. With one point this is just
+     *            |target - value| — and no double-abs: an expression evaluating
+     *            to -42 is NOT a solution for target 42.
+     * fitness:   rawError + targetScale * parsimony * size. Scaling the
+     *            complexity charge keeps it meaningful for tiny and huge
+     *            targets alike.
      */
-    function assess(tree, target) {
-        const value = evalNode(tree);
-        const rawError = Number.isFinite(value) ? Math.abs(target - value) : Infinity;
-        const fitness = rawError === Infinity
-            ? Infinity
-            : rawError + config.parsimony * countNodes(tree);
-        return { tree, value, rawError, fitness };
+    function assess(tree, problem) {
+        const { points } = problem;
+        let sum = 0;
+        for (let i = 0; i < points.length; i++) {
+            const value = evalNode(tree, points[i].x);
+            if (!Number.isFinite(value)) {
+                return { tree, value: NaN, rawError: Infinity, fitness: Infinity };
+            }
+            const diff = value - points[i].y;
+            sum += diff * diff;
+        }
+        const rawError = Math.sqrt(sum / points.length);
+        const fitnessScale = Math.max(problem.scale, config.absoluteTolerance);
+        return {
+            tree,
+            value: evalNode(tree, points[0].x),
+            rawError,
+            fitness: rawError + fitnessScale * config.parsimony * countNodes(tree),
+        };
     }
 
     // -- genetic operators ----------------------------------------------------
@@ -219,19 +431,20 @@ function createEngine(userConfig = {}) {
         return child;
     }
 
-    function mutate(tree) {
+    function mutate(tree, atoms = CONST_ATOMS) {
         const child = copyNode(tree);
         const spot = pick(nodeList(child));
 
         if (rng() < config.subtreeMutationRate) {
             // Subtree mutation: fresh genetic material.
-            const fresh = randomTree(2 + ((rng() * 3) | 0), false);
+            const fresh = randomTree(2 + ((rng() * 3) | 0), false, 0, atoms);
             if (spot.parent === null) return fresh;
             spot.parent.children[spot.index] = fresh;
         } else if (spot.node.type === "atom") {
             // Point mutation on a leaf: new terminal value.
-            const fresh = makeAtom();
+            const fresh = makeAtom(atoms);
             spot.node.value = fresh.value;
+            if (fresh.variable) spot.node.variable = true; else delete spot.node.variable;
             if (fresh.name) spot.node.name = fresh.name; else delete spot.node.name;
         } else {
             // Point mutation on an operator: arity-preserving type swap,
@@ -253,13 +466,23 @@ function createEngine(userConfig = {}) {
     // -- main loop ------------------------------------------------------------
 
     /**
-     * Evolve expressions toward `target`. Returns
-     * { value, expr, error, generations, tree }.
+     * Evolve expressions toward `target` — a number, a function of x, or an
+     * array of sample points (see makeProblem).
+     *
+     * options: { onGeneration, xMin, xMax, samples }
+     * Returns { value, expr, error, generations, tree, fn, points, problem }.
      */
-    function evolve(target, onGeneration) {
-        const tolerance = Math.abs(target) * config.errorPercent / 100;
-        let scored = rampedPopulation(config.populationSize)
-            .map((tree) => assess(tree, target));
+    function evolve(target, options = {}) {
+        const onGeneration = options.onGeneration;
+        const problem = makeProblem(target, options);
+        const atoms = problem.variable ? VAR_ATOMS : CONST_ATOMS;
+        const tolerance = Math.max(
+            config.absoluteTolerance,
+            problem.scale * config.errorPercent / 100
+        );
+
+        let scored = rampedPopulation(config.populationSize, atoms)
+            .map((tree) => assess(tree, problem));
         scored.sort((a, b) => a.fitness - b.fitness);
 
         let best = scored[0];
@@ -284,7 +507,7 @@ function createEngine(userConfig = {}) {
                     childTree = copyNode(parent.tree);
                 }
                 if (rng() < config.mutationRate) {
-                    childTree = mutate(childTree);
+                    childTree = mutate(childTree, atoms);
                 }
 
                 // Bloat control: offspring past the depth cap are replaced by
@@ -293,7 +516,7 @@ function createEngine(userConfig = {}) {
                     childTree = copyNode(parent.tree);
                 }
 
-                next.push(assess(childTree, target));
+                next.push(assess(childTree, problem));
             }
 
             scored = next;
@@ -302,33 +525,88 @@ function createEngine(userConfig = {}) {
             if (onGeneration) onGeneration(generation, best);
         }
 
+        const resultTree = simplifyTree(best.tree);
+        const resultScore = assess(resultTree, problem);
+
         return {
-            value: best.value,
-            expr: prettyPrint(best.tree),
-            error: best.rawError,
+            value: resultScore.value,
+            expr: printNode(resultTree),
+            error: resultScore.rawError,
             generations: generation,
-            tree: best.tree,
+            tolerance,
+            tree: resultTree,
+            problem,
+            fn: (x) => evalNode(resultTree, x),
+            // Target vs. fit at every sample point — the honest way to look at
+            // a regression result, since one scalar can hide a terrible curve.
+            points: problem.points.map((p) => ({ x: p.x, y: p.y, fit: evalNode(resultTree, p.x) })),
         };
     }
 
     /**
      * Random target generator (the original generateLeftExpression):
-     * keeps sampling until it finds a non-trivial expression with a
-     * finite, non-zero value.
+     * keeps sampling until it finds a non-trivial expression.
+     *
+     * options: { variable, minNodes, maxTries, xMin, xMax, samples }
+     * With variable:true it returns a random *function* of x — one that really
+     * depends on x, is finite across the domain, and is not near-constant.
      */
-    function randomTarget(minNodes = 6, maxTries = 10000) {
+    function randomTarget(options = {}) {
+        // Back-compat: randomTarget(6) used to mean minNodes = 6.
+        if (typeof options === "number") options = { minNodes: options };
+        const {
+            variable = false,
+            minNodes = 6,
+            maxTries = 10000,
+            xMin = config.xMin,
+            xMax = config.xMax,
+            samples = config.samples,
+        } = options;
+
+        if (!Number.isInteger(minNodes) || minNodes < 1) {
+            throw new RangeError("minNodes must be an integer of at least 1");
+        }
+        if (!Number.isInteger(maxTries) || maxTries < 0) {
+            throw new RangeError("maxTries must be a non-negative integer");
+        }
+        if (variable && (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax)) {
+            throw new RangeError("xMin and xMax must be finite, with xMin less than xMax");
+        }
+        if (variable && (!Number.isInteger(samples) || samples < 2)) {
+            throw new RangeError("samples must be an integer of at least 2");
+        }
+
+        const atoms = variable ? VAR_ATOMS : CONST_ATOMS;
+
         for (let i = 0; i < maxTries; i++) {
-            const tree = randomTree(4, false);
+            const tree = simplifyTree(randomTree(4, false, 0, atoms));
             if (countNodes(tree) < minNodes) continue;
-            const value = evalNode(tree);
-            if (Number.isFinite(value) && value !== 0) {
-                return { value, expr: prettyPrint(tree), tree };
+
+            if (!variable) {
+                const value = evalNode(tree, 0);
+                if (Number.isFinite(value) && value !== 0) {
+                    return { value, expr: prettyPrint(tree), tree, fn: () => value };
+                }
+                continue;
             }
+
+            if (!usesVariable(tree)) continue;
+            const ys = linspace(xMin, xMax, samples).map((x) => evalNode(tree, x));
+            if (!ys.every((y) => Number.isFinite(y) && Math.abs(y) < 1e6)) continue;
+            const spread = Math.max(...ys) - Math.min(...ys);
+            if (spread < 1e-6) continue; // a constant in disguise
+
+            return {
+                value: evalNode(tree, xMin),
+                expr: prettyPrint(tree),
+                tree,
+                fn: (x) => evalNode(tree, x),
+            };
         }
         throw new Error("randomTarget: no viable expression found");
     }
 
-    return { config, evolve, randomTarget, randomTree, crossover, mutate, assess };
+    return { config, evolve, randomTarget, randomTree, crossover, mutate, assess, makeProblem };
 }
 
 // ---------------------------------------------------------------------------
@@ -336,44 +614,83 @@ function createEngine(userConfig = {}) {
 // ---------------------------------------------------------------------------
 
 function prettyPrint(tree) {
-    return printNode(tree)
-        .replace(/\+-/g, "-")
-        .replace(/--/g, "+");
+    return printNode(simplifyTree(tree));
 }
+
+// ---------------------------------------------------------------------------
+// A few classic targets worth rediscovering. Each carries its own domain,
+// because "where you sample" is part of the problem: e^x over [-5,5] is a
+// different (much harder) question than e^x over [-2,2].
+// ---------------------------------------------------------------------------
+
+const TARGETS = {
+    "sin(x)":            { fn: Math.sin,                          xMin: -Math.PI, xMax: Math.PI },
+    "cos(x)":            { fn: Math.cos,                          xMin: -Math.PI, xMax: Math.PI },
+    "e^x":               { fn: Math.exp,                          xMin: -2,       xMax: 2 },
+    "log(x)":            { fn: Math.log,                          xMin: 0.25,     xMax: 5 },
+    "sqrt(x)":           { fn: Math.sqrt,                          xMin: 0,        xMax: 4 },
+    "sin(2x)":           { fn: (x) => Math.sin(2 * x),            xMin: -Math.PI, xMax: Math.PI },
+    "sinh(x)":           { fn: Math.sinh,                          xMin: -2,       xMax: 2 },
+    "1/(1-x)":           { fn: (x) => 1 / (1 - x),                xMin: -0.8,     xMax: 0.8 },
+    "x^3 - 2x + 1":      { fn: (x) => x * x * x - 2 * x + 1,      xMin: -3,       xMax: 3 },
+    "sin(x)^2+cos(x)^2": { fn: (x) => Math.sin(x) ** 2 + Math.cos(x) ** 2, xMin: -Math.PI, xMax: Math.PI },
+};
 
 // ---------------------------------------------------------------------------
 // Demo
 // ---------------------------------------------------------------------------
 
-function main() {
-    const gp = createEngine({ seed: 42 });
+function report(result, elapsed) {
+    console.log(`found expression: ${result.expr}`);
+    console.log(`RMS error:        ${result.error.toPrecision(6)}`);
+    console.log(`generations:      ${result.generations} (${elapsed} ms)`);
+    console.log();
+}
 
+function main() {
+    const gp = createEngine({ seed: 42, populationSize: 2000, generations: 200 });
+
+    // 1. Symbolic regression: fit a real function of x. sinh has no operator of
+    //    its own, so the search has to actually construct it.
+    const name = "sinh(x)";
+    const spec = TARGETS[name];
+    console.log(`target function:  ${name}  over [${spec.xMin}, ${spec.xMax}]`);
+    let t0 = Date.now();
+    const fit = gp.evolve(spec.fn, {
+        xMin: spec.xMin,
+        xMax: spec.xMax,
+        onGeneration: (gen, best) => {
+            if (gen % 25 === 0) {
+                console.log(`gen ${String(gen).padStart(3)}  rms=${best.rawError.toPrecision(6)}  ${prettyPrint(best.tree)}`);
+            }
+        },
+    });
+    report(fit, Date.now() - t0);
+
+    console.log("x        target      fit");
+    fit.points.filter((_, i) => i % 4 === 0).forEach((p) => {
+        console.log(`${p.x.toFixed(3).padStart(6)}  ${p.y.toFixed(6).padStart(10)}  ${p.fit.toFixed(6).padStart(10)}`);
+    });
+    console.log();
+
+    // 2. The original mode: approximate a single scalar.
     const target = gp.randomTarget();
     console.log("target expression:", target.expr);
     console.log("target value:     ", target.value);
-    console.log();
+    t0 = Date.now();
+    const scalar = gp.evolve(target.value);
+    report(scalar, Date.now() - t0);
 
-    const t0 = Date.now();
-    const result = gp.evolve(target.value, (gen, best) => {
-        if (gen % 5 === 0) {
-            console.log(`gen ${String(gen).padStart(3)}  error=${best.rawError.toPrecision(6)}  ${prettyPrint(best.tree)}`);
-        }
-    });
-    const elapsed = Date.now() - t0;
-
-    console.log();
-    console.log("found expression: ", result.expr);
-    console.log("found value:      ", result.value);
-    console.log("absolute error:   ", result.error);
-    console.log(`generations:       ${result.generations} (${elapsed} ms)`);
-
-    return [target.expr, result.expr];
+    return [fit.expr, scalar.expr];
 }
 
 // Node + browser friendly.
+const GP_API = { createEngine, prettyPrint, simplifyTree, OPS, TARGETS, main };
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { createEngine, prettyPrint, OPS };
+    module.exports = GP_API;
     if (require.main === module) main();
-} else if (typeof window !== "undefined") {
-    window.GP = { createEngine, prettyPrint, OPS, main };
+} else if (typeof globalThis !== "undefined") {
+    // `globalThis` is `window` in the page and `self` in a Web Worker.
+    globalThis.GP = GP_API;
 }
