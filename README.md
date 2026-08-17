@@ -1,7 +1,7 @@
 # Naive Math
 
 A browser demo of **symbolic regression**. Genetic programming evolves an
-expression to match a target function of _x_.
+expression to match a target function of _x_. [Demo](https://alexadam.github.io/demos/naive-math/)
 
 The interesting split is the two languages. The *target* may be written
 with `sin`, `cos`, and `log`. The *search* defaults to algebra only
