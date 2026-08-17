@@ -1,106 +1,67 @@
-# naive-math
+# Naive Math
 
-Symbolic regression with genetic programming: evolve an expression that matches a
-target function of `x`.
+A browser demo of **symbolic regression**. Genetic programming evolves an
+expression to match a target function of _x_.
 
-The terminal set is `x` plus the named constants `pi`, `e`, `phi` and ephemeral
-random constants; the operators are `+ - * / ^ neg sin cos log`. Fitness is the
-**RMS error over ~20 sampled points of x**, so a candidate has to be right across
-the whole domain rather than hitting a single number by arithmetic coincidence.
-That is what separates this from constant approximation — and it lets the search
-rediscover real things:
+The interesting split is the two languages. The *target* may be written
+with `sin`, `cos`, and `log`. The *search* defaults to algebra only
+(`+ − × ÷ ^`). Fitting `sin(x)` then has to invent an approximation —
+it cannot spell `sin(x)` back on generation 1.
 
-| target | domain | evolved |
-| --- | --- | --- |
-| `sin(2x)` | `[-pi, pi]` | `sin(x+x)` |
-| `e^x` | `[-2, 2]` | `e^x` |
-| `sin(x)^2+cos(x)^2` | `[-pi, pi]` | `log(e)` — i.e. 1 |
-| `sqrt(x)` | `[0, 4]` | `x^0.5045…` |
-| `1/(1-x)` | `[-0.8, 0.8]` | `0.9989/(1-x)` |
+![Approximating sin(x) with only algebraic operators](docs/screenshot-sin-dark.png)
 
-## Usage
+<p align="center"><sub>Dark theme · seed <code>2223592327</code> · RMS 0.034 over 20 samples on [−π, π]</sub></p>
 
-```js
-const { createEngine, TARGETS } = require("./app/gene.js");
+![The same run in light theme](docs/screenshot-sin-light.png)
 
-const gp = createEngine({ seed: 42, populationSize: 2000, generations: 200 });
+Named targets can also be rediscovered exactly. Seed `123` finds
+`x³ − 2x + 1` as `((1 + x³) − x) − x` in 28 generations (RMS ~ 10⁻¹⁶):
 
-// A function of x — symbolic regression.
-const fit = gp.evolve(Math.sin, { xMin: -Math.PI, xMax: Math.PI });
-console.log(fit.expr, fit.error);      // expression + RMS error
-console.log(fit.points);               // [{ x, y, fit }] at every sample
+![Rediscovering x³ − 2x + 1](docs/screenshot-poly-dark.png)
 
-// Raw data points work too.
-gp.evolve([[0, 0], [1, 1], [2, 4], [3, 9]]).expr;   // -> (x*x)
+## Run
 
-// A plain number is the one-point case: approximate a scalar.
-gp.evolve(42).expr;
+```bash
+./start.sh
 ```
 
-`node app/gene.js` runs a demo of both modes. `TARGETS` holds the named target
-functions used by the web app, each with the domain it is interesting on.
+Then open [http://localhost:9000](http://localhost:9000). Static files,
+no build, no backend. Evolution runs in a Web Worker so the page stays
+responsive.
 
-### Engine options
+Press **Generate**. The evolved side updates live; the plot is target
+(gold) vs current best (teal), with the worst residual marked.
 
-`seed`, `populationSize`, `generations`, `tournamentSize`, `elitism`,
-`crossoverRate`, `mutationRate`, `subtreeMutationRate`, `minInitDepth`,
-`maxInitDepth`, `maxDepth`, `parsimony`, `errorPercent`, `absoluteTolerance`,
-`samples`, `xMin`, `xMax`. Selection is tournament + elitism, mutation is subtree
-and arity-preserving point mutation, and bloat is controlled by a depth cap plus a
-target-scaled parsimony penalty. Power, division, and log are protected against
-non-finite results. Output trees are simplified before printing.
+## Replay a run
 
-The browser exposes the PRNG seed and saves all run inputs in the URL hash. A URL
-such as `#seed=42&pop=2000` restores those values, making a run shareable and
-reproducible. Evolution runs in a Web Worker, streams the current best expression
-and error into the page after every generation, and can be cancelled without
-blocking the UI.
+Every generate writes the knobs into the URL hash. Reload, or share the
+link, to replay the same search. A random target also stores `tseed`, so
+the question is pinned as well as the answer.
 
-## Demo
+This is the `sin(x)` run from the screenshot:
 
-https://alexadam.dev/naive-math/
+```
+#seed=2223592327&pop=1000&gen=100&mutation=0.2&error=0.1&target=sin(x)&ops=add,sub,mul,div,neg,pow&xmin=-3.1416&xmax=3.1416&samples=20
+```
 
-## Examples:
+Turn on **Keep target** to hold a random function and roll only the
+search seed.
 
+## Knobs that surprise people
 
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex1.png)
+| Control | What it actually is |
+| --- | --- |
+| **Error %** | Stopping tolerance: RMS as a percent of the target's scale (with a tiny absolute floor near zero). Not a display unit. |
+| **Samples** | Fitness grid size. The plot draws a denser curve; scoring does not. |
+| **Search symbols** | The only operators the population may use. Leave `sin` off to force an approximation of `sin(x)`. |
+| **Seed** | The *search*. A random target has its own `tseed`. The dice also clears a pinned target seed. |
 
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex2.png)
+## Tests
 
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex3.png)
+```bash
+node gene.test.js && node gene-worker.test.js
+```
 
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex4.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex5.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex6.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex7.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex8.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex9.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex10.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex11.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex12.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex13.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex14.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex15.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex16.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex17.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex18.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex19.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex20.png)
-
-![alt result](https://github.com/alexadam/naive-math/blob/master/examples/ex21.png)
+No extra dependencies. `gene.js` is the engine (tournament selection,
+elitism, subtree crossover, protected ops, parsimony, depth caps,
+seedable PRNG). The worker and the page are thin wrappers around it.

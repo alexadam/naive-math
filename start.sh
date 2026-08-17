@@ -1,0 +1,1 @@
+npx --yes serve -l 9000

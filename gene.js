@@ -24,6 +24,8 @@
  *  - No Array.prototype pollution
  *  - Seedable PRNG (mulberry32) for reproducible runs
  *  - Named constants (pi, e, phi) carried on the node, not regex'd at print time
+ *  - Configurable operator set (config.ops), so a target is not "solved" by the
+ *    single operator that spells it
  *
  * Runs in Node (`node symbolic-regression.js`) or the browser (exposes GP global).
  */
@@ -63,6 +65,35 @@ const OPS = {
 
 const OP_NAMES = Object.keys(OPS);
 const POW_LIMIT = 1e12;
+// Drawing resolution for the target-vs-evolved curve. Fitness still uses
+// config.samples; extra evaluations here never change the score.
+const PLOT_SAMPLES = 160;
+
+/**
+ * Named operator sets — the search language, chosen per run via `config.ops`.
+ *
+ * Restricting the language is what makes a run interesting. With `sin` in the
+ * set, "fit sin(x)" is answered by the literal `sin(x)` in generation 1 and
+ * nothing has been discovered; with only arithmetic the search has to build a
+ * polynomial approximation, which is the actual result worth looking at.
+ */
+const OP_SETS = {
+    arithmetic: ["add", "sub", "mul", "div", "neg"],
+    algebraic: ["add", "sub", "mul", "div", "neg", "pow"],
+    all: OP_NAMES.slice(),
+};
+
+/**
+ * A list of operator names, as given by config.ops or by a random target's own
+ * `ops`: the two are separate choices, so both are checked the same way.
+ */
+function validateOpNames(ops, label) {
+    if (!Array.isArray(ops) || ops.length === 0) {
+        throw new RangeError(`${label} must be a non-empty array of operator names`);
+    }
+    const unknown = ops.find((name) => !Object.prototype.hasOwnProperty.call(OPS, name));
+    if (unknown !== undefined) throw new RangeError(`${label} contains an unknown operator: ${unknown}`);
+}
 
 /**
  * Power is undefined in the real-valued search space for a negative base and a
@@ -75,12 +106,6 @@ function protectedPow(base, exponent) {
     const value = Math.pow(base, exponent);
     return Number.isFinite(value) && Math.abs(value) <= POW_LIMIT ? value : 1;
 }
-
-// Point mutation stays arity-preserving (same nice property as the original).
-const SAME_ARITY = {
-    1: OP_NAMES.filter((op) => OPS[op].arity === 1),
-    2: OP_NAMES.filter((op) => OPS[op].arity === 2),
-};
 
 // ---------------------------------------------------------------------------
 // Tree = plain data. { type, children } for ops, { type:'atom', value, name? }
@@ -213,6 +238,7 @@ function nodeList(root) {
 function createEngine(userConfig = {}) {
     const config = {
         seed: Date.now() >>> 0,
+        ops: OP_SETS.algebraic, // search language; see OP_SETS
         populationSize: 1000,
         generations: 40,
         tournamentSize: 4,     // selection pressure: pick k at random, keep the fittest
@@ -235,6 +261,16 @@ function createEngine(userConfig = {}) {
     validateConfig(config);
     const rng = mulberry32(config.seed);
     const pick = (arr) => arr[(rng() * arr.length) | 0];
+
+    // The operators this run may use. Duplicates would skew the draw, so the
+    // set is deduped once here rather than trusted as given.
+    const opNames = [...new Set(config.ops)];
+    // Point mutation stays arity-preserving (same nice property as the
+    // original), and only ever swaps in operators from the allowed set.
+    const sameArity = {
+        1: opNames.filter((op) => OPS[op].arity === 1),
+        2: opNames.filter((op) => OPS[op].arity === 2),
+    };
 
     // Terminal set. Named constants keep pretty-printing exact — no regex
     // find/replace on stringified floats like the original mathPrint did.
@@ -275,7 +311,12 @@ function createEngine(userConfig = {}) {
         }
     }
 
+    function requireOps() {
+        validateOpNames(config.ops, "ops");
+    }
+
     function validateConfig() {
+        requireOps();
         requireInteger("seed", 0, 0xffffffff);
         requireInteger("populationSize", 2);
         requireInteger("generations", 1);
@@ -311,15 +352,15 @@ function createEngine(userConfig = {}) {
      * The initial population mixes both across a depth range
      * (ramped half-and-half, the standard GP initialization).
      */
-    function randomTree(maxDepth, full, depth = 0, atoms = CONST_ATOMS) {
+    function randomTree(maxDepth, full, depth = 0, atoms = CONST_ATOMS, ops = opNames) {
         const atDepthLimit = depth >= maxDepth;
         const wantAtom = atDepthLimit || (!full && depth > 0 && rng() < 0.3);
         if (wantAtom) return makeAtom(atoms);
 
-        const type = pick(OP_NAMES);
+        const type = pick(ops);
         const children = [];
         for (let i = 0; i < OPS[type].arity; i++) {
-            children.push(randomTree(maxDepth, full, depth + 1, atoms));
+            children.push(randomTree(maxDepth, full, depth + 1, atoms, ops));
         }
         return { type, children };
     }
@@ -417,6 +458,31 @@ function createEngine(userConfig = {}) {
         };
     }
 
+    /**
+     * Fitness samples `{x, y, fit}` plus a denser `curve` used only for
+     * drawing. Named and custom targets are re-evaluated on the draw grid;
+     * a point-list target has no function, so the curve is the sample points.
+     */
+    function plotData(tree, target, problem, options = {}) {
+        const points = problem.points.map((p) => ({
+            x: p.x,
+            y: p.y,
+            fit: evalNode(tree, p.x),
+        }));
+
+        if (typeof target !== "function" || points.length >= PLOT_SAMPLES) {
+            return { points, curve: points };
+        }
+
+        const xMin = options.xMin ?? config.xMin;
+        const xMax = options.xMax ?? config.xMax;
+        const curve = linspace(xMin, xMax, PLOT_SAMPLES)
+            .map((x) => ({ x, y: target(x), fit: evalNode(tree, x) }))
+            .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+        return { points, curve: curve.length > 0 ? curve : points };
+    }
+
     // -- genetic operators ----------------------------------------------------
 
     /** Canonical subtree crossover: a random node in a copy of `a` is replaced
@@ -449,7 +515,8 @@ function createEngine(userConfig = {}) {
         } else {
             // Point mutation on an operator: arity-preserving type swap,
             // so the children stay valid (same trick as the original).
-            spot.node.type = pick(SAME_ARITY[OPS[spot.node.type].arity]);
+            const alternatives = sameArity[OPS[spot.node.type].arity];
+            if (alternatives.length > 0) spot.node.type = pick(alternatives);
         }
         return child;
     }
@@ -470,7 +537,9 @@ function createEngine(userConfig = {}) {
      * array of sample points (see makeProblem).
      *
      * options: { onGeneration, xMin, xMax, samples }
-     * Returns { value, expr, error, generations, tree, fn, points, problem }.
+     * onGeneration(generation, best) receives the scored tree plus `points`
+     * (fitness samples) and `curve` (denser draw samples) on `best`.
+     * Returns { value, expr, error, generations, tree, fn, points, curve, problem }.
      */
     function evolve(target, options = {}) {
         const onGeneration = options.onGeneration;
@@ -522,11 +591,16 @@ function createEngine(userConfig = {}) {
             scored = next;
             scored.sort((a, b) => a.fitness - b.fitness);
             if (scored[0].fitness < best.fitness) best = scored[0];
-            if (onGeneration) onGeneration(generation, best);
+            if (onGeneration) {
+                // Shallow copy so the plot arrays do not stick on the elite
+                // individual that survives into the next generation.
+                onGeneration(generation, Object.assign({}, best, plotData(best.tree, target, problem, options)));
+            }
         }
 
         const resultTree = simplifyTree(best.tree);
         const resultScore = assess(resultTree, problem);
+        const plot = plotData(resultTree, target, problem, options);
 
         return {
             value: resultScore.value,
@@ -539,7 +613,8 @@ function createEngine(userConfig = {}) {
             fn: (x) => evalNode(resultTree, x),
             // Target vs. fit at every sample point — the honest way to look at
             // a regression result, since one scalar can hide a terrible curve.
-            points: problem.points.map((p) => ({ x: p.x, y: p.y, fit: evalNode(resultTree, p.x) })),
+            points: plot.points,
+            curve: plot.curve,
         };
     }
 
@@ -547,9 +622,14 @@ function createEngine(userConfig = {}) {
      * Random target generator (the original generateLeftExpression):
      * keeps sampling until it finds a non-trivial expression.
      *
-     * options: { variable, minNodes, maxTries, xMin, xMax, samples }
+     * options: { variable, minNodes, maxTries, xMin, xMax, samples, ops }
      * With variable:true it returns a random *function* of x — one that really
      * depends on x, is finite across the domain, and is not near-constant.
+     *
+     * Targets are drawn from `ops` — the *full* operator set by default, never
+     * `config.ops`: what gets asked and what may be used to answer it are
+     * separate choices, and a target the search cannot state verbatim is
+     * exactly the interesting case.
      */
     function randomTarget(options = {}) {
         // Back-compat: randomTarget(6) used to mean minNodes = 6.
@@ -561,7 +641,10 @@ function createEngine(userConfig = {}) {
             xMin = config.xMin,
             xMax = config.xMax,
             samples = config.samples,
+            ops = OP_NAMES,
         } = options;
+
+        validateOpNames(ops, "target ops");
 
         if (!Number.isInteger(minNodes) || minNodes < 1) {
             throw new RangeError("minNodes must be an integer of at least 1");
@@ -577,9 +660,10 @@ function createEngine(userConfig = {}) {
         }
 
         const atoms = variable ? VAR_ATOMS : CONST_ATOMS;
+        const targetOps = [...new Set(ops)];
 
         for (let i = 0; i < maxTries; i++) {
-            const tree = simplifyTree(randomTree(4, false, 0, atoms));
+            const tree = simplifyTree(randomTree(4, false, 0, atoms, targetOps));
             if (countNodes(tree) < minNodes) continue;
 
             if (!variable) {
@@ -685,7 +769,7 @@ function main() {
 }
 
 // Node + browser friendly.
-const GP_API = { createEngine, prettyPrint, simplifyTree, OPS, TARGETS, main };
+const GP_API = { createEngine, prettyPrint, simplifyTree, OPS, OP_SETS, TARGETS, main };
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = GP_API;

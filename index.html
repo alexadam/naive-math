@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#12141a">
+    <meta name="description" content="Genetic programming evolves an expression to match a target function of x.">
+    <title>Naive Math</title>
+    <script>
+        (function() {
+            var theme = "dark";
+            try {
+                var saved = localStorage.getItem("naive-math-theme");
+                if (saved === "light" || saved === "dark") theme = saved;
+                else if (window.matchMedia("(prefers-color-scheme: light)").matches) theme = "light";
+            } catch (error) {}
+            document.documentElement.setAttribute("data-theme", theme);
+            if (theme === "light") {
+                document.querySelector('meta[name="theme-color"]').setAttribute("content", "#f3eee6");
+            }
+        })();
+    </script>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2312141a'/%3E%3Cpath d='M3.2 12.4 7.1 3.6h1.8l3.9 8.8H11l-.9-2.1H5.9l-.9 2.1H3.2zm3.2-3.6h3.2L8 5.1 6.4 8.8z' fill='%23d4a054'/%3E%3C/svg%3E">
+
+    <link rel="stylesheet" href="./style.css" media="screen" title="no title" charset="utf-8">
+
+    <script type="text/x-mathjax-config">
+        // Long evolved expressions must wrap inside their column, never scroll sideways.
+        MathJax.Hub.Config({
+            "HTML-CSS": {
+                scale: 90,
+                linebreaks: { automatic: true, width: "container" }
+            },
+            CommonHTML: {
+                scale: 90,
+                linebreaks: { automatic: true, width: "container" }
+            },
+            SVG: {
+                scale: 90,
+                linebreaks: { automatic: true, width: "container" }
+            }
+        });
+    </script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=AM_HTMLorMML-full"></script>
+    <script type="text/javascript" src="./gene.js"></script>
+    <script type="text/javascript" src="./app.js"></script>
+
+</head>
+
+<body>
+
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="mark" aria-hidden="true"></span>
+                <div class="brand-copy">
+                    <p class="eyebrow">Symbolic regression</p>
+                    <h1>Naive Math</h1>
+                    <p class="lede">Genetic programming evolves an expression to match a target function of <em>x</em>.</p>
+                </div>
+            </div>
+            <div class="topbar-actions">
+                <section class="status hidden" id="statusRow" aria-live="polite"></section>
+                <button type="button" id="themeToggle" class="theme-toggle" aria-label="Switch to light theme" title="Light theme">
+                    <svg class="icon-sun" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                        <circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                        <path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M3.3 12.7l1.1-1.1M11.6 4.4l1.1-1.1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                    <svg class="icon-moon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                        <path d="M9.6 2.2a5.8 5.8 0 1 0 4.2 9.4A5.6 5.6 0 0 1 9.6 2.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <button type="button" id="generateBtn" class="btn-primary">Generate</button>
+                <button type="button" id="cancelBtn" class="btn-secondary hidden">Cancel</button>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <aside class="rail params">
+                <section class="cluster">
+                    <h2>Target</h2>
+                    <div class="param param-wide">
+                        <label for="targetSelect">Function</label>
+                        <select id="targetSelect"></select>
+                    </div>
+                    <div class="param param-wide hidden" id="customTargetParam">
+                        <label for="customTargetInput">f(x) =</label>
+                        <input type="text" id="customTargetInput" value="sin(x) + x/2" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="param param-ops target-ops-param">
+                        <span class="param-label">Target symbols</span>
+                        <div class="op-checks" id="targetOpsGroup" role="group" aria-label="Target symbols"></div>
+                    </div>
+                    <div class="param keep-param target-ops-param" id="keepTargetParam">
+                        <label class="check-row" for="keepTargetInput">
+                            <input type="checkbox" id="keepTargetInput">
+                            <span>Keep target</span>
+                        </label>
+                        <p class="hint">Hold this target and start the next search from scratch. Roll the seed to try a different evolution.</p>
+                    </div>
+                    <div class="field-row field-row-3">
+                        <div class="param domain-param">
+                            <label for="xMinInput">x from</label>
+                            <input type="number" id="xMinInput" value="-3.1416" step="0.1" title="Left edge of the interval the search is scored on.">
+                        </div>
+                        <div class="param domain-param">
+                            <label for="xMaxInput">x to</label>
+                            <input type="number" id="xMaxInput" value="3.1416" step="0.1" title="Right edge of the interval the search is scored on.">
+                        </div>
+                        <div class="param domain-param">
+                            <label for="samplesInput">Samples</label>
+                            <input type="number" id="samplesInput" value="20" step="1" min="2" title="Fitness grid size. The plot may draw a denser curve.">
+                        </div>
+                    </div>
+                </section>
+
+                <section class="cluster">
+                    <h2>Search</h2>
+                    <div class="param param-ops">
+                        <span class="param-label">Search symbols</span>
+                        <div class="op-checks" id="searchOpsGroup" role="group" aria-label="Search symbols"></div>
+                        <p class="hint">The search may only use checked symbols. Leave sin off to force an approximation of sin(x).</p>
+                    </div>
+                    <div class="field-row">
+                        <div class="param">
+                            <label for="errorPercentInput">Error %</label>
+                            <input type="number" id="errorPercentInput" value="0.1" step="0.01" min="0" title="Stopping tolerance, as a percent of the target's scale. Not a display unit.">
+                        </div>
+                        <div class="param">
+                            <label for="mutationRateInput">Mutation Rate</label>
+                            <input type="number" id="mutationRateInput" value="0.2" step="0.01" min="0" max="1" title="Chance each offspring is mutated after crossover.">
+                        </div>
+                        <div class="param">
+                            <label for="generationsInput">Generations</label>
+                            <input type="number" id="generationsInput" value="100" step="1" min="1" title="Maximum generations before the search stops.">
+                        </div>
+                        <div class="param">
+                            <label for="populationSizeInput">Population Size</label>
+                            <input type="number" id="populationSizeInput" value="1000" step="1" min="3" title="Expressions scored each generation.">
+                        </div>
+                    </div>
+                    <div class="param param-seed">
+                        <label for="seedInput">Seed</label>
+                        <div class="seed-field">
+                            <input type="number" id="seedInput" step="1" min="0" max="4294967295" title="Search seed. A random target has its own seed; the dice also clears a pinned target seed.">
+                            <button type="button" id="randomSeedBtn" class="btn-dice" title="Randomize seed" aria-label="Randomize seed">
+                                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                                    <rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                                    <circle cx="5.2" cy="5.2" r="1.05" fill="currentColor"/>
+                                    <circle cx="10.8" cy="5.2" r="1.05" fill="currentColor"/>
+                                    <circle cx="8" cy="8" r="1.05" fill="currentColor"/>
+                                    <circle cx="5.2" cy="10.8" r="1.05" fill="currentColor"/>
+                                    <circle cx="10.8" cy="10.8" r="1.05" fill="currentColor"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <main class="stage">
+                <section class="sheet equation" aria-label="Target and evolved expressions">
+                    <div class="eq-labels">
+                        <span>Target</span>
+                        <span>Evolved</span>
+                    </div>
+                    <div class="eq-row">
+                        <div class="expr-box text-right" id="leftMathExpr">?</div>
+                        <div class="equals" aria-hidden="true">=</div>
+                        <div class="expr-box text-left" id="rightMathExpr">?</div>
+                    </div>
+                    <p class="eq-caption">Watch the right-hand side invent a match from the search symbols you allow.</p>
+                </section>
+
+                <div class="scope-placeholder" aria-hidden="true">
+                    <span class="scope-placeholder-rule"></span>
+                    <p>Press Generate. The target and evolved curves will draw here.</p>
+                </div>
+
+                <section class="error hidden" id="errorRow"></section>
+
+                <section class="results hidden" id="valuesRow">
+                    <div class="result-card text-right">
+                        <span class="result-label" id="leftStatLabel">Value</span>
+                        <span class="result-value" id="leftValue"></span>
+                    </div>
+                    <div class="result-card result-card-error">
+                        <span class="result-label" id="errorLabel">Error</span>
+                        <span class="result-value" id="errorVal"></span>
+                    </div>
+                    <div class="result-card text-left">
+                        <span class="result-label" id="rightStatLabel">Value</span>
+                        <span class="result-value" id="rightValue"></span>
+                    </div>
+                </section>
+
+                <section class="scope hidden" id="plotRow">
+                    <div class="plot-legend">
+                        <span class="plot-key"><span class="swatch swatch-target"></span> target</span>
+                        <span class="plot-key"><span class="swatch swatch-evolved"></span> evolved</span>
+                        <span class="plot-key"><span class="swatch swatch-residual"></span> worst residual</span>
+                    </div>
+                    <canvas id="fitPlot" class="plot-canvas" role="img" aria-label="Target versus evolved"></canvas>
+                </section>
+
+                <section class="sheet fit hidden" id="fitRow">
+                    <table class="fit-table">
+                        <thead>
+                            <tr>
+                                <th>x</th>
+                                <th>target</th>
+                                <th>evolved</th>
+                                <th>|diff|</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fitBody"></tbody>
+                    </table>
+                </section>
+
+                <section class="ascii-row hidden" id="asciiRow">
+                    <div class="ascii-text text-right hidden" id="leftAsciiText"></div>
+                    <button type="button" id="asciiToggleBtn" class="btn-ghost">As Text</button>
+                    <div class="ascii-text text-left hidden" id="rightAsciiText"></div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+</body>
+
+</html>
